@@ -1,0 +1,49 @@
+{
+  "name": "safesurf/safesurf",
+  "type": "library",
+  "description": "A PHP library for checking if a URL is safe to surf.",
+  "keywords": [
+    "phishing",
+    "url-scanner",
+    "phishing-detection",
+    "url-analysis",
+    "phishing-url-detector"
+  ],
+  "homepage": "https://github.com/DikaArdnt/safesurf-php",
+  "license": "MIT",
+  "readme": "README.md",
+  "authors": [
+    {
+      "name": "Dika Ardianta",
+      "email": "mail@dikaardnt.com",
+      "homepage": "https://dikaardnt.com"
+    }
+  ],
+  "require": {
+    "php": ">=8.0",
+    "jeremykendall/php-domain-parser": "^6.0",
+    "io-developer/php-whois": "^4.1",
+    "phpfastcache/phpfastcache": "^9.2"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^10.0"
+  },
+  "suggest": {
+    "jeremykendall/php-domain-parser": "Provides robust domain parsing for URL analysis.",
+    "io-developer/php-whois": "Adds WHOIS lookup support for checking domain registration data.",
+    "phpfastcache/phpfastcache": "Adds caching support to improve performance of repeated checks."
+  },
+  "scripts": {
+    "tests": "vendor/bin/phpunit tests/"
+  },
+  "autoload": {
+    "psr-4": {
+      "SafeSurf\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "SafeSurf\\Tests\\": "tests/"
+    }
+  }
+}
