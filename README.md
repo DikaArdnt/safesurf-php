@@ -2,7 +2,7 @@
 
 ## Disclaimer
 
-This project is a PHP-native rewrite of the repository [abhizaik/phishing-detection](https://github.com/abhizaik/phishing-detection).
+This project is a PHP-native rewrite of the repository [abhizaik/urlvet](https://github.com/abhizaik/urlvet).
 
 SafeSurf for PHP focuses on transparent analysis results (reasons), scores, and verdicts.
 
