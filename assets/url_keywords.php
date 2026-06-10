@@ -2,7 +2,8 @@
 
 declare(strict_types=1);
 
-return array (
+return [
+  //  Login & Authentication
   'login' => 'auth',
   'signin' => 'auth',
   'signon' => 'auth',
@@ -14,6 +15,8 @@ return array (
   'passcode' => 'auth',
   'access' => 'auth',
   'token' => 'auth',
+
+  //  Account Management
   'account' => 'account',
   'verify' => 'account',
   'update' => 'account',
@@ -23,11 +26,15 @@ return array (
   'validate' => 'account',
   'approval' => 'account',
   'credentials' => 'account',
+
+  //  Security & Alerts
   'secure' => 'security',
   'security' => 'security',
   'alert' => 'security',
   'warning' => 'security',
   'notice' => 'security',
+
+  //  Financial & Payment
   'paypal' => 'finance',
   'banking' => 'finance',
   'wallet' => 'finance',
@@ -36,9 +43,11 @@ return array (
   'transaction' => 'finance',
   'payment' => 'finance',
   'webscr' => 'finance',
+
+  //  Generic Support / Social Engineering
   'support' => 'support',
   'helpdesk' => 'support',
   'contact' => 'support',
   'service' => 'support',
   'customer' => 'support',
-);
+];

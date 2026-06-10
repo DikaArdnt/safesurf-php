@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-return array (
+return [
   'icu' => true,
   'ml' => true,
   'py' => true,
@@ -141,4 +141,4 @@ return array (
   'hk' => true,
   'today' => true,
   'network' => true,
-);
+];

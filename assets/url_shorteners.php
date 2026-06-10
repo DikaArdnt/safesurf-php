@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-return array (
+return [
   '0.gp' => true,
   '02faq.com' => true,
   '0a.sk' => true,
@@ -700,6 +700,7 @@ return array (
   'linkbun.com' => true,
   'linkd.in' => true,
   'linkjust.com' => true,
+  'linko.me' => true,
   'linko.page' => true,
   'linkopener.co' => true,
   'links2.me' => true,
@@ -2671,4 +2672,5 @@ return array (
   'iplog.link' => true,
   'iatp.by' => true,
   'skfb.ly' => true,
-);
+  'kua.lat' => true
+];
