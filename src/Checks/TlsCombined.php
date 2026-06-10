@@ -133,8 +133,21 @@ final class TlsCombined
         }
 
         $extensions = $parsed['extensions'] ?? null;
-        if (is_array($extensions) && array_key_exists('1.3.6.1.4.1.11129.2.4.2', $extensions)) {
-            $sslInfo['ct_logged'] = true;
+        if (is_array($extensions)) {
+            foreach (array_keys($extensions) as $key) {
+                $normalizedKey = strtolower((string) $key);
+
+                $isCtExtension =
+                    $normalizedKey === 'ct_precert_scts' ||
+                    $normalizedKey === '1.3.6.1.4.1.11129.2.4.2' ||
+                    str_contains($normalizedKey, 'signedcertificatetimestamp') ||
+                    str_contains($normalizedKey, 'certificate transparency');
+
+                if ($isCtExtension) {
+                    $sslInfo['ct_logged'] = true;
+                    break;
+                }
+            }
         }
 
         if (!$sslInfo['ct_logged']) {
