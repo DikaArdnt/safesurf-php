@@ -42,6 +42,8 @@ final class DomainInfo
         if ($rdap !== null) {
             $rdap['age_human'] = self::domainAgeHuman($rdap['created'] ?? null);
             $rdap['age_days'] = self::domainAgeDays($rdap['created'] ?? null);
+            $rdap['expiry_human'] = self::domainExpiryHuman($rdap['expiry'] ?? null);
+            $rdap['expiry_days'] = self::domainExpiryDays($rdap['expiry'] ?? null);
             if ($config->cache !== null) {
                 $config->cache->setJson($cacheKey, $rdap, $config->ttlWhoisSeconds);
             }
@@ -52,6 +54,8 @@ final class DomainInfo
         if ($whois !== null) {
             $whois['age_human'] = self::domainAgeHuman($whois['created'] ?? null);
             $whois['age_days'] = self::domainAgeDays($whois['created'] ?? null);
+            $whois['expiry_human'] = self::domainExpiryHuman($whois['expiry'] ?? null);
+            $whois['expiry_days'] = self::domainExpiryDays($whois['expiry'] ?? null);
             if ($config->cache !== null) {
                 $config->cache->setJson($cacheKey, $whois, $config->ttlWhoisSeconds);
             }
@@ -371,5 +375,66 @@ final class DomainInfo
             $parts[] = $months === 1 ? '1 month' : ($months . ' months');
         }
         return implode(' ', $parts);
+    }
+
+    private static function domainExpiryHuman(?string $expiryIso): string
+    {
+        if (!is_string($expiryIso) || $expiryIso === '') {
+            return '';
+        }
+        $ts = strtotime($expiryIso);
+        if ($ts === false) {
+            return '';
+        }
+        $now = time();
+        if ($ts < $now) {
+            return 'already expired';
+        }
+
+        $expiry = new \DateTimeImmutable("@$ts");
+        $nowDt = new \DateTimeImmutable("@$now");
+        $diff = $expiry->diff($nowDt);
+
+        $years = (int) $diff->y;
+        $months = (int) $diff->m;
+        $days = (int) floor(($ts - $now) / 86400);
+
+        if ($years <= 0 && $months <= 0) {
+            if ($days === 0) {
+                return 'expires today';
+            }
+            if ($days === 1) {
+                return 'expires in 1 day';
+            }
+            if ($days < 30) {
+                return 'expires in ' . $days . ' days';
+            }
+            return 'expires in less than a month';
+        }
+
+        $parts = [];
+        if ($years > 0) {
+            $parts[] = $years === 1 ? '1 year' : ($years . ' years');
+        }
+        if ($months > 0) {
+            $parts[] = $months === 1 ? '1 month' : ($months . ' months');
+        }
+        return 'expires in ' . implode(' ', $parts);
+    }
+
+    private static function domainExpiryDays(?string $expiryIso): int
+    {
+        if (!is_string($expiryIso) || $expiryIso === '') {
+            return 0;
+        }
+        $ts = strtotime($expiryIso);
+        if ($ts === false) {
+            return 0;
+        }
+        $now = time();
+        if ($ts < $now) {
+            return 0;
+        }
+        return (int) floor(($ts - $now) / 86400);
     }
 }

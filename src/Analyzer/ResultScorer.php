@@ -124,6 +124,9 @@ final class ResultScorer
         if (is_array($di)) {
             $ageDays = (int) ($di['age_days'] ?? 0);
             $ageHuman = (string) ($di['age_human'] ?? '');
+            $expiryDays = (int) ($di['expiry_days'] ?? 0);
+            $expiryHuman = (string) ($di['expiry_human'] ?? '');
+
             if ($ageDays > 0 && $ageDays <= 30) {
                 $bad[] = sprintf('Newly created domain (%s old). High Risk.', $ageHuman);
                 $risk += 25;
@@ -136,6 +139,27 @@ final class ResultScorer
             } elseif ($ageDays > 0) {
                 $good[] = sprintf('Long-standing domain history (%s).', $ageHuman);
                 $trust += 15;
+            }
+
+            if ($expiryDays > 0) {
+                if ($ageDays > 0 && $ageDays <= 365 && $expiryDays <= 365) {
+                    $bad[] = sprintf('Young domain with near-term expiry (%s remaining). Elevated risk.', $expiryHuman);
+                    $risk += 20;
+                } elseif ($expiryDays <= 30) {
+                    $bad[] = sprintf('Domain expiry approaching soon (%s remaining).', $expiryHuman);
+                    $risk += 15;
+                } elseif ($expiryDays <= 90) {
+                    $neutral[] = sprintf('Domain expiry within %s.', $expiryHuman);
+                } elseif ($expiryDays <= 365) { // 1 year
+                    $good[] = sprintf('Domain expiry within %s (moderate coverage).', $expiryHuman);
+                    $trust += 8;
+                } elseif ($expiryDays <= 1825) { // 5 years
+                    $good[] = sprintf('Domain expiry is well-established (%s remaining).', $expiryHuman);
+                    $trust += 15;
+                } else { // >5 years
+                    $good[] = sprintf('Domain expiry is long-term secured (%s remaining).', $expiryHuman);
+                    $trust += 25;
+                }
             }
 
             if (!empty($di['dnssec'])) {

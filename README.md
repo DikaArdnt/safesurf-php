@@ -9,7 +9,7 @@ SafeSurf for PHP focuses on transparent analysis results (reasons), scores, and 
 ## Features
 
 - Real-time URL analysis: redirect chain, HTTP status, HSTS
-- Domain & DNS signals: rank (top-1m), IP resolution, NS/MX validity
+- Domain & DNS signals: rank (top-1m), IP resolution, NS/MX validity, domain age, domain expiry
 - URL signals: keywords, URL shortener, excessive length/depth, subdomain count, punycode
 - TLS/SSL signals: TLS presence, issuer, certificate age, chain validation (best effort)
 - Page content (best effort): title, login/payment/personal form detection, hidden iframe, brand mismatch
