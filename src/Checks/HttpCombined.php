@@ -192,4 +192,3 @@ final class HttpCombined
         return $map[$code] ?? '';
     }
 }
-

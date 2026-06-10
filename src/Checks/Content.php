@@ -192,13 +192,17 @@ final class Content
                     $info['has_user_like'] = true;
                 }
 
-                if (str_contains($hay, 'card') || str_contains($hay, 'cvv') || str_contains($hay, 'expiry') || str_contains($hay, 'credit') ||
-                    str_contains($hay, 'money') || str_contains($hay, 'pay') || str_contains($hay, 'billing') || str_contains($hay, 'checkout') || str_contains($hay, 'payment')) {
+                if (
+                    str_contains($hay, 'card') || str_contains($hay, 'cvv') || str_contains($hay, 'expiry') || str_contains($hay, 'credit') ||
+                    str_contains($hay, 'money') || str_contains($hay, 'pay') || str_contains($hay, 'billing') || str_contains($hay, 'checkout') || str_contains($hay, 'payment')
+                ) {
                     $info['has_payment'] = true;
                 }
 
-                if (str_contains($hay, 'address') || str_contains($hay, 'phone') || str_contains($hay, 'ssn') || str_contains($hay, 'dob') ||
-                    str_contains($hay, 'birth') || str_contains($hay, 'city') || str_contains($hay, 'zip') || str_contains($hay, 'state')) {
+                if (
+                    str_contains($hay, 'address') || str_contains($hay, 'phone') || str_contains($hay, 'ssn') || str_contains($hay, 'dob') ||
+                    str_contains($hay, 'birth') || str_contains($hay, 'city') || str_contains($hay, 'zip') || str_contains($hay, 'state')
+                ) {
                     $info['has_personal'] = true;
                 }
             }
@@ -332,8 +336,10 @@ final class Content
         }
 
         $style = strtolower($style);
-        if (str_contains($style, 'display:none') || str_contains($style, 'visibility:hidden') || str_contains($style, 'opacity:0') ||
-            str_contains($style, 'width:0') || str_contains($style, 'height:0')) {
+        if (
+            str_contains($style, 'display:none') || str_contains($style, 'visibility:hidden') || str_contains($style, 'opacity:0') ||
+            str_contains($style, 'width:0') || str_contains($style, 'height:0')
+        ) {
             return true;
         }
 
@@ -344,4 +350,3 @@ final class Content
         return false;
     }
 }
-

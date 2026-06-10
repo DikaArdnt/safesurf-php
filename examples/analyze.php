@@ -10,7 +10,7 @@ use SafeSurf\Cache\PhpFastCacheAdapter;
 use SafeSurf\Config;
 use SafeSurf\SafeSurf;
 
-$url = $argv[1] ?? 'example.com';
+$url = $argv[1] ?? 'kua.lat';
 
 $pool = CacheManager::getInstance('Files', new ConfigurationOption([
     'path' => __DIR__ . '/../storage/cache',
@@ -22,4 +22,3 @@ $config = new Config(cache: $cache);
 $result = SafeSurf::analyze($url, $config);
 
 echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
-

@@ -14,10 +14,15 @@ final class ResultScorer
         $trust = 0;
         $risk = 0;
 
-        $rank = (int) (($resp['features']['rank'] ?? 0));
+        $rank = (int) ($resp['features']['rank'] ?? 0);
         if ($rank === 0) {
-            $bad[] = 'Very low traffic volume.';
-            $risk += 20;
+            $isHostingPlatform = !empty($resp['features']['tld']['is_hosting_platform']);
+            if ($isHostingPlatform) {
+                $neutral[] = sprintf('Unranked subdomain on %s (normal for personal or project pages).', (string) ($resp['features']['tld']['tld'] ?? 'unknown'));
+            } else {
+                $bad[] = 'Very low traffic volume.';
+                $risk += 10;
+            }
         } elseif ($rank > 0 && $rank <= 10000) {
             $good[] = sprintf('Global Giant: Ranked #%d worldwide.', $rank);
             $trust += 90;
@@ -33,6 +38,7 @@ final class ResultScorer
         $isRisky = !empty($tldInfo['is_risky_tld']);
         $isTrusted = !empty($tldInfo['is_trusted_tld']);
         $isIcann = !empty($tldInfo['is_icann']);
+        $isHostingPlatform = !empty($tldInfo['is_hosting_platform']);
 
         if ($isRisky) {
             $bad[] = 'High-risk domain extension detected (often associated with spam).';
@@ -47,8 +53,12 @@ final class ResultScorer
         }
 
         if (!$isIcann) {
-            $bad[] = 'Unregulated or non-standard domain extension.';
-            $risk += 30;
+            if ($isHostingPlatform) {
+                // PSL private entry but operated by a reputable hosting company — small trust signal.
+            } else {
+                $bad[] = 'Unregulated or non-standard domain extension.';
+                $risk += 30;
+            }
         }
 
         if (!empty($resp['analysis']['is_hsts_supported'])) {
@@ -97,11 +107,15 @@ final class ResultScorer
         }
 
         if (empty($resp['infrastructure']['nameservers_valid'])) {
-            $bad[] = 'Incomplete or missing DNS configuration.';
-            $risk += 10;
+            if ($isHostingPlatform) {
+                // Hosting platforms manage the entire DNS zone; individual subdomains have no own NS records.
+            } else {
+                $bad[] = 'Incomplete or missing DNS configuration.';
+                $risk += 10;
+            }
         }
 
-        if (empty($resp['infrastructure']['mx_records_valid'])) {
+        if (empty($resp['infrastructure']['mx_records_valid']) && !$isHostingPlatform) {
             $neutral[] = 'No email server configured for this domain.';
             $risk += 5;
         }
@@ -275,4 +289,3 @@ final class ResultScorer
         return max(0, min(100, $score));
     }
 }
-

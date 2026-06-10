@@ -11,6 +11,7 @@ final class DataFiles
     private static ?array $urlShorteners = null;
     private static ?array $urlKeywords = null;
     private static ?array $brands = null;
+    private static ?array $hostingPlatforms = null;
 
     public static function riskyTlds(): array
     {
@@ -28,6 +29,15 @@ final class DataFiles
         }
         self::$trustedTlds = require __DIR__ . '/../../assets/trusted_tlds.php';
         return self::$trustedTlds;
+    }
+
+    public static function hostingPlatforms(): array
+    {
+        if (self::$hostingPlatforms !== null) {
+            return self::$hostingPlatforms;
+        }
+        self::$hostingPlatforms = require __DIR__ . '/../../assets/hosting_platforms.php';
+        return self::$hostingPlatforms;
     }
 
     public static function urlShorteners(): array

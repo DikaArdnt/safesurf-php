@@ -11,8 +11,7 @@ final class PhpFastCacheAdapter implements CacheInterface
 {
     public function __construct(
         private ExtendedCacheItemPoolInterface $pool
-    ) {
-    }
+    ) {}
 
     public function getJson(string $key): mixed
     {

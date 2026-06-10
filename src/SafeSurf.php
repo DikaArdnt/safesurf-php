@@ -13,4 +13,3 @@ final class SafeSurf
         return Analyzer::analyze($url, $config);
     }
 }
-

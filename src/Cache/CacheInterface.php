@@ -10,4 +10,3 @@ interface CacheInterface
 
     public function setJson(string $key, mixed $value, int $ttlSeconds): void;
 }
-

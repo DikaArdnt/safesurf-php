@@ -19,7 +19,8 @@ final class TldSignals
         $trusted = isset(DataFiles::trustedTlds()[$tld]);
         $risky = isset(DataFiles::riskyTlds()[$tld]);
 
-        return ['tld' => $tld, 'icann' => $icann, 'trusted' => $trusted, 'risky' => $risky];
+        $hostingPlatform = isset(DataFiles::hostingPlatforms()[$tld]);
+
+        return ['tld' => $tld, 'icann' => $icann, 'trusted' => $trusted, 'risky' => $risky, 'hosting_platform' => $hostingPlatform];
     }
 }
-

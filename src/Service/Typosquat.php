@@ -104,4 +104,3 @@ final class Typosquat
         return $parts[0] ?? $reg;
     }
 }
-

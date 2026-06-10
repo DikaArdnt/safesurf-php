@@ -17,4 +17,3 @@ final class Homoglyph
         return preg_match('/[^\\x00-\\x7F]/u', $domain) === 1;
     }
 }
-

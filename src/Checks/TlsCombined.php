@@ -132,9 +132,12 @@ final class TlsCombined
             $tlsInfo['hostname_mismatch'] = $ok === false;
         }
 
-        if (isset($parsed['extensions']) && is_array($parsed['extensions']) && in_array('1.3.6.1.4.1.11129.2.4.2', array_keys($parsed['extensions']))) {
+        $extensions = $parsed['extensions'] ?? null;
+        if (is_array($extensions) && array_key_exists('1.3.6.1.4.1.11129.2.4.2', $extensions)) {
             $sslInfo['ct_logged'] = true;
-        } else {
+        }
+
+        if (!$sslInfo['ct_logged']) {
             $sslInfo['is_suspicious'] = true;
             $sslInfo['reasons'][] = 'certificate does not contain CT log extension';
         }

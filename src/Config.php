@@ -27,6 +27,5 @@ final class Config
         public int $ttlAnalyzeResultSeconds = 86400,
         public ?string $phishTankApiKey = null,
         public string $phishTankUserAgent = 'phishtank/SafeSurfPHP'
-    ) {
-    }
+    ) {}
 }

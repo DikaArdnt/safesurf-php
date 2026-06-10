@@ -98,7 +98,7 @@ The main configuration is located in [Config.php](./src/Config.php). The most co
 - `url`, `domain`
 - `features`
   - `rank`
-  - `tld`: `tld`, `is_trusted_tld`, `is_risky_tld`, `is_icann`
+  - `tld`: `tld`, `is_trusted_tld`, `is_risky_tld`, `is_icann`, `is_hosting_platform`
   - `url`: `url_shortener`, `uses_ip`, `contains_punycode`, `too_long`, `too_deep`, `has_homoglyph`, `subdomain_count`, `keywords`
 - `infrastructure`: `ip_addresses`, `nameservers_valid`, `ns_hosts`, `mx_records_valid`, `mx_hosts`
 - `domain_info`: RDAP/WHOIS results (may be `null` if lookup fails)

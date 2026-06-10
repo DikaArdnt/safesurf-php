@@ -9,9 +9,36 @@ final class Entropy
     private const MAX_ALPHABET_BITS = 5.954196310386875;
 
     private static array $commonBigrams = [
-        'th' => true, 'he' => true, 'in' => true, 'er' => true, 'an' => true, 're' => true, 'on' => true, 'at' => true, 'en' => true, 'nd' => true,
-        'ti' => true, 'es' => true, 'or' => true, 'te' => true, 'of' => true, 'ed' => true, 'is' => true, 'it' => true, 'al' => true, 'ar' => true,
-        'st' => true, 'to' => true, 'nt' => true, 'ng' => true, 'se' => true, 'ha' => true, 'as' => true, 'ou' => true, 'io' => true, 'le' => true,
+        'th' => true,
+        'he' => true,
+        'in' => true,
+        'er' => true,
+        'an' => true,
+        're' => true,
+        'on' => true,
+        'at' => true,
+        'en' => true,
+        'nd' => true,
+        'ti' => true,
+        'es' => true,
+        'or' => true,
+        'te' => true,
+        'of' => true,
+        'ed' => true,
+        'is' => true,
+        'it' => true,
+        'al' => true,
+        'ar' => true,
+        'st' => true,
+        'to' => true,
+        'nt' => true,
+        'ng' => true,
+        'se' => true,
+        'ha' => true,
+        'as' => true,
+        'ou' => true,
+        'io' => true,
+        'le' => true,
     ];
 
     public static function analyzeDomainRandomness(string $domain): array
@@ -246,4 +273,3 @@ final class Entropy
         return max($max, $cur);
     }
 }
-

@@ -105,4 +105,3 @@ final class DnsSignals
         return ['valid' => $valid, 'hosts' => array_values(array_unique($hosts))];
     }
 }
-

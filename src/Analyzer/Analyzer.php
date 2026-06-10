@@ -53,61 +53,47 @@ final class Analyzer
         $timings = [];
         $errors = [];
 
-        $rank = self::timed('domain_rank', $timings, function () use ($domain, $config) {
-            return self::cached("domain_rank:$domain", $config->ttlDomainRankSeconds, $config, fn () => Rank::lookup($domain, $config));
-        }, $errors);
+        $rank = self::timed('domain_rank', $timings, fn() => self::cached("domain_rank:$domain", $config->ttlDomainRankSeconds, $config, fn() => Rank::lookup($domain, $config)), $errors);
 
-        $http = self::timed('http_combined_check', $timings, function () use ($normalized, $config) {
-            return self::cached("http_combined:$normalized", $config->ttlHttpCombinedSeconds, $config, fn () => HttpCombined::check($normalized, $config));
-        }, $errors);
+        $http = self::timed('http_combined_check', $timings, fn() => self::cached("http_combined:$normalized", $config->ttlHttpCombinedSeconds, $config, fn() => HttpCombined::check($normalized, $config)), $errors);
 
-        $usesIp = self::timed('ip_check', $timings, fn () => UrlSignals::usesIp($normalized), $errors);
+        $usesIp = self::timed('ip_check', $timings, fn() => UrlSignals::usesIp($normalized), $errors);
 
-        $ips = self::timed('ip_resolution', $timings, function () use ($domain, $config) {
-            return self::cached("ip_resolution:$domain", $config->ttlIpResolutionSeconds, $config, fn () => DnsSignals::ipAddresses($domain));
-        }, $errors);
+        $ips = self::timed('ip_resolution', $timings, fn() => self::cached("ip_resolution:$domain", $config->ttlIpResolutionSeconds, $config, fn() => DnsSignals::ipAddresses($domain)), $errors);
 
-        $puny = self::timed('punycode_check', $timings, fn () => UrlSignals::containsPunycode($normalized), $errors);
+        $puny = self::timed('punycode_check', $timings, fn() => UrlSignals::containsPunycode($normalized), $errors);
 
-        $tld = self::timed('tld_check', $timings, fn () => TldSignals::info($domain, $config), $errors);
+        $tld = self::timed('tld_check', $timings, fn() => TldSignals::info($domain, $config), $errors);
 
-        $isShortener = self::timed('shortener_check', $timings, fn () => UrlSignals::isUrlShortener($domain), $errors);
+        $isShortener = self::timed('shortener_check', $timings, fn() => UrlSignals::isUrlShortener($domain), $errors);
 
-        $tooLong = self::timed('url_structure_check', $timings, fn () => UrlSignals::tooLong($normalized), $errors);
-        $tooDeep = self::timed('url_structure_check_2', $timings, fn () => UrlSignals::tooDeep($normalized), $errors);
+        $tooLong = self::timed('url_structure_check', $timings, fn() => UrlSignals::tooLong($normalized), $errors);
+        $tooDeep = self::timed('url_structure_check_2', $timings, fn() => UrlSignals::tooDeep($normalized), $errors);
 
-        $kw = self::timed('keywords_check', $timings, fn () => UrlSignals::keywordMatches($normalized), $errors);
+        $kw = self::timed('keywords_check', $timings, fn() => UrlSignals::keywordMatches($normalized), $errors);
 
-        $dns = self::timed('dns_validity_check', $timings, function () use ($domain, $config) {
-            return self::cached("dns_validity:$domain", $config->ttlDnsValiditySeconds, $config, function () use ($domain) {
-                $ns = DnsSignals::nsValidity($domain);
-                $mx = DnsSignals::mxValidity($domain);
-                return [
-                    'ns_valid' => (bool) $ns['valid'],
-                    'ns_hosts' => $ns['hosts'],
-                    'mx_valid' => (bool) $mx['valid'],
-                    'mx_hosts' => $mx['hosts'],
-                ];
-            });
-        }, $errors);
+        $dns = self::timed('dns_validity_check', $timings, fn() => self::cached("dns_validity:$domain", $config->ttlDnsValiditySeconds, $config, function () use ($domain) {
+            $ns = DnsSignals::nsValidity($domain);
+            $mx = DnsSignals::mxValidity($domain);
+            return [
+                'ns_valid' => (bool) $ns['valid'],
+                'ns_hosts' => $ns['hosts'],
+                'mx_valid' => (bool) $mx['valid'],
+                'mx_hosts' => $mx['hosts'],
+            ];
+        }), $errors);
 
-        $subCount = self::timed('subdomain_check', $timings, fn () => UrlSignals::subdomainCount($normalized, $config), $errors);
+        $subCount = self::timed('subdomain_check', $timings, fn() => UrlSignals::subdomainCount($normalized, $config), $errors);
 
-        $domainInfo = self::timed('whois_lookup', $timings, function () use ($domain, $config) {
-            return DomainInfo::lookup($domain, $config);
-        }, $errors);
+        $domainInfo = self::timed('whois_lookup', $timings, fn() => DomainInfo::lookup($domain, $config), $errors);
 
-        $tlsCombined = self::timed('tls_combined_check', $timings, function () use ($domain, $config) {
-            return self::cached("tls_combined:$domain", $config->ttlTlsCombinedSeconds, $config, fn () => TlsCombined::check($domain));
-        }, $errors);
+        $tlsCombined = self::timed('tls_combined_check', $timings, fn() => self::cached("tls_combined:$domain", $config->ttlTlsCombinedSeconds, $config, fn() => TlsCombined::check($domain)), $errors);
 
-        $entropy = self::timed('entropy_check', $timings, fn () => Entropy::analyzeDomainRandomness($domain), $errors);
+        $entropy = self::timed('entropy_check', $timings, fn() => Entropy::analyzeDomainRandomness($domain), $errors);
 
-        $content = self::timed('content_check', $timings, function () use ($normalized, $config) {
-            return self::cached("content_check:$normalized", $config->ttlContentSeconds, $config, fn () => Content::analyze($normalized, $config));
-        }, $errors);
+        $content = self::timed('content_check', $timings, fn() => self::cached("content_check:$normalized", $config->ttlContentSeconds, $config, fn() => Content::analyze($normalized, $config)), $errors);
 
-        $homoglyph = self::timed('homoglyph_check', $timings, fn () => Homoglyph::hasHomoglyphs($domain), $errors);
+        $homoglyph = self::timed('homoglyph_check', $timings, fn() => Homoglyph::hasHomoglyphs($domain), $errors);
 
         $phish = self::timed('phishtank_check', $timings, function () use ($normalized, $config) {
             $cacheKey = "phishtank:$normalized";
@@ -125,7 +111,7 @@ final class Analyzer
             return $val;
         }, $errors);
 
-        $typo = self::timed('typosquat_check', $timings, fn () => Typosquat::check($domain, $config), $errors);
+        $typo = self::timed('typosquat_check', $timings, fn() => Typosquat::check($domain, $config), $errors);
 
         $timingsList = self::timingsToList($timings);
         $resp = [
@@ -138,6 +124,7 @@ final class Analyzer
                     'is_trusted_tld' => !empty($tld['trusted']),
                     'is_risky_tld' => !empty($tld['risky']),
                     'is_icann' => !empty($tld['icann']),
+                    'is_hosting_platform' => !empty($tld['hosting_platform']),
                 ],
                 'url' => [
                     'url_shortener' => (bool) $isShortener,
@@ -238,7 +225,7 @@ final class Analyzer
         foreach ($timings as $task => $seconds) {
             $list[] = ['task' => (string) $task, 'time' => self::formatDuration((float) $seconds), 'dur' => (float) $seconds];
         }
-        usort($list, fn ($a, $b) => ($b['dur'] <=> $a['dur']));
+        usort($list, fn($a, $b) => ($b['dur'] <=> $a['dur']));
         foreach ($list as &$row) {
             unset($row['dur']);
         }
@@ -253,4 +240,3 @@ final class Analyzer
         return sprintf('%.2fms', $seconds * 1000.0);
     }
 }
-

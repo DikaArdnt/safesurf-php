@@ -118,4 +118,3 @@ final class UrlSignals
         return count(explode('.', $sub));
     }
 }
-

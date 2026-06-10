@@ -26,4 +26,3 @@ final class AnalyzerSmokeTest extends TestCase
         $this->assertArrayHasKey('performance', $out);
     }
 }
-
