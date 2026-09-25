@@ -24,6 +24,11 @@ final class HttpClient
             return self::err('invalid_host');
         }
 
+        $scheme = strtolower((string) (parse_url($url, PHP_URL_SCHEME) ?? ''));
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return self::err('blocked_scheme');
+        }
+
         $ip = null;
         if (!filter_var($host, FILTER_VALIDATE_IP)) {
             $ip = self::resolveFirstPublicIp($host);
@@ -39,6 +44,8 @@ final class HttpClient
 
         $headers = [];
         $body = '';
+        $truncated = false;
+        $maxBytes = max(1, $config->maxBodyBytes);
 
         $ch = curl_init();
         if ($ch === false) {
@@ -72,6 +79,21 @@ final class HttpClient
                 $headers[$k][] = $v;
                 return $len;
             },
+            CURLOPT_WRITEFUNCTION => function ($ch, string $chunk) use (&$body, &$truncated, $maxBytes, $discardBody): int {
+                if ($discardBody) {
+                    return strlen($chunk);
+                }
+                $room = $maxBytes - strlen($body);
+                if (strlen($chunk) > $room) {
+                    if ($room > 0) {
+                        $body .= substr($chunk, 0, $room);
+                    }
+                    $truncated = true;
+                    return 0;
+                }
+                $body .= $chunk;
+                return strlen($chunk);
+            },
         ];
 
         if (strtoupper($method) === 'HEAD') {
@@ -79,37 +101,32 @@ final class HttpClient
         }
 
         $parts = parse_url($url);
-        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
         $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
         if ($host !== $ip) {
             $opts[CURLOPT_RESOLVE] = ["{$host}:{$port}:{$ip}"];
         }
 
         curl_setopt_array($ch, $opts);
-        $rawBody = curl_exec($ch);
+        curl_exec($ch);
         $errno = curl_errno($ch);
-        $err = $errno !== 0 ? curl_error($ch) : null;
-        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-
-        // Deprecated in PHP 8.5, but we want to support older versions as well.
-        if (function_exists('curl_close')) {
-            curl_close($ch);
+        $err = null;
+        // 23 = CURLE_WRITE_ERROR: body cap reached, not a transport failure.
+        if ($errno !== 0 && $errno !== 23) {
+            $err = curl_error($ch);
         }
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
 
         if ($err !== null) {
             return self::err($err);
         }
 
-        if (!$discardBody && is_string($rawBody)) {
-            $body = $rawBody;
-        }
-
         return [
             'status' => $status,
             'headers' => $headers,
-            'body' => $body,
+            'body' => $discardBody ? '' : $body,
             'error' => null,
             'resolved_ip' => $ip,
+            'truncated' => $truncated,
         ];
     }
 
@@ -189,6 +206,16 @@ final class HttpClient
                 return true;
             }
 
+            // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible forms must be
+            // validated as the embedded IPv4 address.
+            if (substr($bin, 0, 10) === str_repeat("\0", 10) && (ord($bin[10]) === 0xFF || ord($bin[10]) === 0) && ord($bin[11]) === 0xFF) {
+                $v4 = long2ip((int) (unpack('N', substr($bin, 12))[1] ?? 0));
+                if (is_string($v4)) {
+                    return self::isPrivateIp($v4);
+                }
+                return true;
+            }
+
             $firstByte = ord($bin[0]);
             $secondByte = ord($bin[1]);
 
@@ -210,6 +237,6 @@ final class HttpClient
 
     private static function err(string $msg): array
     {
-        return ['status' => 0, 'headers' => [], 'body' => '', 'error' => $msg, 'resolved_ip' => null];
+        return ['status' => 0, 'headers' => [], 'body' => '', 'error' => $msg, 'resolved_ip' => null, 'truncated' => false];
     }
 }

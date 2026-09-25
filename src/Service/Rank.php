@@ -34,7 +34,7 @@ final class Rank
             if ($line === '') {
                 continue;
             }
-            $parts = str_getcsv($line);
+            $parts = str_getcsv($line, ',', '"', '');
             if (count($parts) < 2) {
                 continue;
             }
@@ -78,7 +78,7 @@ final class Rank
             if ($line === '') {
                 continue;
             }
-            $parts = str_getcsv($line);
+            $parts = str_getcsv($line, ',', '"', '');
             if (count($parts) < 2) {
                 continue;
             }

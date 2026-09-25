@@ -254,11 +254,6 @@ final class DomainInfo
         $errno = curl_errno($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
 
-        // Deprecated in PHP 8.5, but we want to support older versions as well.
-        if (function_exists('curl_close')) {
-            curl_close($ch);
-        }
-
         if ($errno !== 0 || !is_string($raw) || $raw === '' || $status < 200 || $status >= 300) {
             return null;
         }

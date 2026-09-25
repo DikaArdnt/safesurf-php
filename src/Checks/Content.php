@@ -10,6 +10,8 @@ use SafeSurf\Util\HttpClient;
 
 final class Content
 {
+    private const MAX_TEXT_SAMPLE_WORDS = 300;
+
     public static function analyze(string $pageUrl, Config $config): ?array
     {
         $start = microtime(true);
@@ -20,6 +22,17 @@ final class Content
         }
 
         $body = (string) ($resp['body'] ?? '');
+
+        $out = self::analyzeHtml($body, $pageUrl, $config);
+        if (is_array($out)) {
+            $out['fetch_duration'] = (int) round((microtime(true) - $start) * 1_000_000_000);
+        }
+
+        return $out;
+    }
+
+    public static function analyzeHtml(string $body, string $pageUrl, Config $config): ?array
+    {
         if ($body === '') {
             return null;
         }
@@ -114,7 +127,30 @@ final class Content
             }
         }
 
+        $favicon = self::analyzeFavicon($xp, $pageUrl, $pageHost, $config);
+        $assets = self::analyzeExternalAssets($xp, $pageUrl, $pageHost, $config);
+        $metaRefresh = self::analyzeMetaRefresh($doc, $pageUrl, $pageHost, $config);
+        $textSample = self::extractTextSample($xp);
+        $jsSignals = JsSignals::analyzeHtml($body);
+
         $brandCheck = Brand::checkMismatch($pageHost, $title);
+        $brandsInText = Brand::namesInText($textSample);
+
+        $faviconBrandMismatch = false;
+        if (!empty($favicon['brand_domain'])) {
+            $faviconBrandMismatch = !self::sameHost($favicon['brand_domain'], $pageHost, $config);
+        }
+        $favicon['brand_mismatch'] = $faviconBrandMismatch;
+
+        $nonOfficialBrandText = [];
+        foreach ($brandsInText as $brandName) {
+            $official = Brand::officialDomainsFor($brandName);
+            if (!self::hostIsOfficial($pageHost, $official, $config)) {
+                $nonOfficialBrandText[] = $brandName;
+            }
+        }
+
+        $loginWithBrandText = $hasLogin && $nonOfficialBrandText !== [];
 
         return [
             'url' => $pageUrl,
@@ -128,9 +164,241 @@ final class Content
             'iframes' => $iframes,
             'has_hidden_iframe' => $hasHiddenIframe,
             'has_tracking' => $hasTracking,
-            'fetch_duration' => (int) round((microtime(true) - $start) * 1_000_000_000),
+            'fetch_duration' => 0,
             'brand_check' => $brandCheck,
+            'text_sample' => $textSample,
+            'favicon' => $favicon,
+            'phishing_patterns' => [
+                'favicon_external' => !empty($favicon['is_external']),
+                'favicon_brand_mismatch' => $faviconBrandMismatch,
+                'meta_refresh_external' => !empty($metaRefresh['is_external']),
+                'meta_refresh' => $metaRefresh,
+                'external_asset_hosts' => $assets['hosts'],
+                'external_asset_count' => $assets['count'],
+                'brand_names_in_text' => $nonOfficialBrandText,
+                'login_with_brand_text' => $loginWithBrandText,
+                'js_signals' => $jsSignals,
+            ],
         ];
+    }
+
+    private static function analyzeFavicon(\DOMXPath $xp, string $pageUrl, string $pageHost, Config $config): array
+    {
+        $out = [
+            'href' => '',
+            'is_external' => false,
+            'external_host' => '',
+            'brand_domain' => '',
+        ];
+
+        $links = $xp->query('//link');
+        if ($links === false) {
+            return $out;
+        }
+
+        $href = '';
+        foreach ($links as $link) {
+            if (!$link instanceof \DOMElement) {
+                continue;
+            }
+            $rel = strtolower(trim($link->getAttribute('rel')));
+            if ($rel === '' || !str_contains($rel, 'icon')) {
+                continue;
+            }
+            $candidate = trim($link->getAttribute('href'));
+            if ($candidate === '' || $candidate === '#') {
+                continue;
+            }
+            $href = $candidate;
+            break;
+        }
+
+        if ($href === '') {
+            return $out;
+        }
+
+        $out['href'] = $href;
+
+        $abs = self::absoluteUrl($pageUrl, $href);
+        $host = DomainUtil::hostFromUrl($abs) ?? '';
+        if ($host !== '' && $pageHost !== '' && !self::sameHost($host, $pageHost, $config)) {
+            $out['is_external'] = true;
+            $out['external_host'] = $host;
+            $brandDomain = self::brandOfficialHost($host);
+            if ($brandDomain !== null) {
+                $out['brand_domain'] = $brandDomain;
+            }
+        }
+
+        return $out;
+    }
+
+    private static function brandOfficialHost(string $host): ?string
+    {
+        foreach (\SafeSurf\Constants\DataFiles::brands() as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $official = $entry['official_domains'] ?? [];
+            if (!is_array($official)) {
+                continue;
+            }
+            foreach ($official as $domain) {
+                if (!is_string($domain) || $domain === '') {
+                    continue;
+                }
+                $domain = strtolower($domain);
+                if ($host === $domain || str_ends_with($host, ".$domain")) {
+                    return $domain;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static function analyzeExternalAssets(\DOMXPath $xp, string $pageUrl, string $pageHost, Config $config): array
+    {
+        $hosts = [];
+        $count = 0;
+
+        $nodes = $xp->query('//script[@src] | //link[@href] | //img[@src]');
+        if ($nodes === false || $pageHost === '') {
+            return ['hosts' => [], 'count' => 0];
+        }
+
+        foreach ($nodes as $n) {
+            if (!$n instanceof \DOMElement) {
+                continue;
+            }
+            $tag = strtolower($n->tagName);
+            $raw = $tag === 'link' ? trim($n->getAttribute('href')) : trim($n->getAttribute('src'));
+            if ($raw === '' || str_starts_with($raw, 'data:')) {
+                continue;
+            }
+            $abs = self::absoluteUrl($pageUrl, $raw);
+            $host = DomainUtil::hostFromUrl($abs) ?? '';
+            if ($host === '' || self::sameHost($host, $pageHost, $config)) {
+                continue;
+            }
+            $count++;
+            if (count($hosts) < 10) {
+                $hosts[$host] = true;
+            }
+        }
+
+        return ['hosts' => array_keys($hosts), 'count' => $count];
+    }
+
+    private static function analyzeMetaRefresh(\DOMDocument $doc, string $pageUrl, string $pageHost, Config $config): array
+    {
+        $out = [
+            'present' => false,
+            'delay_seconds' => null,
+            'target' => '',
+            'is_external' => false,
+        ];
+
+        $metas = $doc->getElementsByTagName('meta');
+        if ($metas === false || $metas->length === 0) {
+            return $out;
+        }
+
+        foreach ($metas as $meta) {
+            if (!$meta instanceof \DOMElement) {
+                continue;
+            }
+            if (strtolower(trim($meta->getAttribute('http-equiv'))) !== 'refresh') {
+                continue;
+            }
+            $content = trim($meta->getAttribute('content'));
+            if ($content === '') {
+                continue;
+            }
+            $out['present'] = true;
+            if (preg_match('/^\s*(\d+)\s*;/i', $content, $m)) {
+                $out['delay_seconds'] = (int) $m[1];
+            }
+            if (preg_match('/url\s*=\s*[\'"]?([^\'";]+)/i', $content, $m)) {
+                $target = trim($m[1]);
+                $out['target'] = $target;
+                $host = DomainUtil::hostFromUrl(self::absoluteUrl($pageUrl, $target)) ?? '';
+                $out['is_external'] = $host !== '' && $pageHost !== '' && !self::sameHost($host, $pageHost, $config);
+            }
+            break;
+        }
+
+        return $out;
+    }
+
+    private static function extractTextSample(\DOMXPath $xp): string
+    {
+        $body = $xp->query('//body')->item(0);
+        if (!$body instanceof \DOMNode) {
+            return '';
+        }
+
+        $clone = $body->cloneNode(true);
+        $remove = $xp->query('.//script | .//style | .//noscript', $clone);
+        if ($remove !== false && $remove->length > 0) {
+            foreach (iterator_to_array($remove) as $n) {
+                if ($n->parentNode !== null) {
+                    $n->parentNode->removeChild($n);
+                }
+            }
+        }
+
+        $text = preg_replace('/\s+/u', ' ', trim($clone->textContent)) ?? '';
+        $words = preg_split('/ /u', $text) ?: [];
+        if (count($words) > self::MAX_TEXT_SAMPLE_WORDS) {
+            $words = array_slice($words, 0, self::MAX_TEXT_SAMPLE_WORDS);
+        }
+        return implode(' ', $words);
+    }
+
+    private static function absoluteUrl(string $baseUrl, string $raw): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return $baseUrl;
+        }
+        if (preg_match('#^https?://#i', $raw)) {
+            return $raw;
+        }
+
+        $base = @parse_url($baseUrl);
+        if (!is_array($base) || empty($base['scheme']) || empty($base['host'])) {
+            return $raw;
+        }
+        $scheme = (string) $base['scheme'];
+        $host = (string) $base['host'];
+        $port = isset($base['port']) ? (':' . (int) $base['port']) : '';
+
+        if (str_starts_with($raw, '//')) {
+            return "$scheme:$raw";
+        }
+        if (str_starts_with($raw, '/')) {
+            return "$scheme://$host$port$raw";
+        }
+
+        $path = (string) ($base['path'] ?? '/');
+        $dir = substr($path, 0, strrpos($path, '/') !== false ? (int) strrpos($path, '/') + 1 : 0);
+        return "$scheme://$host$port/$dir$raw";
+    }
+
+    private static function hostIsOfficial(string $host, array $officialDomains, Config $config): bool
+    {
+        if ($host === '') {
+            return false;
+        }
+        foreach ($officialDomains as $official) {
+            if (!is_string($official) || $official === '') {
+                continue;
+            }
+            if (self::sameHost($official, $host, $config)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function extractFormInfo(\DOMElement $form, string $baseUrl, string $pageHost, Config $config): array

@@ -224,6 +224,32 @@ final class ResultScorer
             }
         }
 
+        $threatFeeds = $resp['threat_feeds'] ?? [];
+        if (is_array($threatFeeds) && isset($threatFeeds['results']) && is_array($threatFeeds['results'])) {
+            $severityWeights = ['phishing' => 70, 'malware' => 70, 'blocked' => 25, 'unwanted' => 20, 'info' => 0];
+            foreach ($threatFeeds['results'] as $tf) {
+                if (!is_array($tf) || empty($tf['checked']) || empty($tf['listed'])) {
+                    continue;
+                }
+                $feedName = (string) ($tf['feed'] ?? '');
+                if ($feedName === 'phishtank') {
+                    continue; // already scored via the 'phishing' field
+                }
+                $severity = (string) ($tf['severity'] ?? 'blocked');
+                $weight = $severityWeights[$severity] ?? 25;
+                if ($weight === 0) {
+                    continue;
+                }
+                $bad[] = sprintf(
+                    "Threat feed '%s' (%s) reports this %s.",
+                    $feedName,
+                    (string) ($tf['category'] ?? 'external'),
+                    $severity === 'phishing' ? 'URL as phishing' : ($severity === 'malware' ? 'URL as malware' : 'host as blocked')
+                );
+                $risk += $weight;
+            }
+        }
+
         $content = $resp['content_data'] ?? null;
         if (is_array($content)) {
             if (!empty($content['has_login_form'])) {
@@ -279,6 +305,150 @@ final class ResultScorer
                     if (!empty($f['has_password']) && empty($resp['ssl_info']['has_tls'])) {
                         $bad[] = 'DANGEROUS: Password form detected over insecure connection!';
                         $risk += 200;
+                    }
+                }
+            }
+        }
+
+        $sslInfo = $resp['ssl_info'] ?? [];
+        if (is_array($sslInfo)) {
+            if (!empty($sslInfo['is_suspicious'])) {
+                $reasons = $sslInfo['reasons'] ?? [];
+                $reasonText = is_array($reasons) && $reasons !== [] ? implode('; ', $reasons) : 'certificate issues';
+                $bad[] = sprintf('TLS certificate is suspicious (%s).', $reasonText);
+                $risk += 20;
+            }
+            $tlsInfo = $resp['tls_info'] ?? [];
+            if (is_array($tlsInfo) && !empty($tlsInfo['hostname_mismatch'])) {
+                $bad[] = 'TLS certificate does not match the domain name.';
+                $risk += 25;
+            }
+        }
+
+        if (is_array($di)) {
+            $statuses = $di['status'] ?? [];
+            $badStatuses = [];
+            if (is_array($statuses)) {
+                foreach ($statuses as $st) {
+                    if (!is_string($st)) {
+                        continue;
+                    }
+                    $stLower = strtolower($st);
+                    if (str_contains($stLower, 'hold') || str_contains($stLower, 'pendingdelete') || str_contains($stLower, 'redemptionperiod')) {
+                        $badStatuses[] = $st;
+                    }
+                }
+            }
+            if ($badStatuses !== []) {
+                $bad[] = sprintf('Domain registry status is problematic (%s).', implode(', ', $badStatuses));
+                $risk += 25;
+            }
+        }
+
+        $subSignals = $resp['features']['subdomain'] ?? [];
+        $isSubdomainHost = is_array($subSignals) && (int) ($subSignals['subdomain_count'] ?? 0) > 0;
+        if ($isSubdomainHost) {
+            $sensitiveLabels = $subSignals['sensitive_labels'] ?? [];
+            if (is_array($sensitiveLabels) && $sensitiveLabels !== []) {
+                $neutral[] = sprintf('Subdomain uses sensitive label(s): %s.', implode(', ', array_keys($sensitiveLabels)));
+            }
+
+            $brandHits = $subSignals['brand_hits'] ?? [];
+            if (is_array($brandHits) && $brandHits !== []) {
+                $hitBrands = [];
+                foreach ($brandHits as $hit) {
+                    if (is_array($hit) && !empty($hit['brand'])) {
+                        $hitBrands[] = (string) $hit['brand'];
+                    }
+                }
+                if ($hitBrands !== []) {
+                    $bad[] = sprintf('Brand name(s) %s embedded in subdomain while the domain is unofficial.', implode(', ', array_unique($hitBrands)));
+                    $risk += $isHostingPlatform ? 10 : 15;
+                }
+            }
+        }
+
+        $corr = $resp['correlation'] ?? null;
+        $corrSignals = is_array($corr) ? ($corr['signals'] ?? []) : [];
+        $hasLogin = is_array($content) && !empty($content['has_login_form']);
+        $weakRootReputation = $rank === 0 || (is_array($di) && (int) ($di['age_days'] ?? 0) > 0 && (int) ($di['age_days'] ?? 0) <= 365);
+
+        if (is_array($corrSignals)) {
+            $rootInactive = !empty($corrSignals['root_inactive']);
+            $rootParked = !empty($corrSignals['root_parked_or_empty']);
+            $rootRedirectsAway = !empty($corrSignals['root_redirects_off_domain']);
+            $infraSplit = !empty($corrSignals['infrastructure_split']);
+            $contentDivergent = !empty($corrSignals['content_divergent']);
+
+            if ($rootInactive) {
+                $neutral[] = 'Root domain appears inactive, parked or unreachable while analyzing a subdomain.';
+            }
+            if ($infraSplit) {
+                $neutral[] = 'Subdomain and root domain are hosted on different infrastructure.';
+            }
+
+            if ($rootInactive && $hasLogin && $weakRootReputation) {
+                $bad[] = 'SUSPICIOUS: Root domain is unused while the subdomain serves a login page.';
+                $risk += 25;
+                if ($rootParked) {
+                    $bad[] = 'Root domain is parked or shows placeholder content.';
+                    $risk += 5;
+                }
+            }
+
+            if ($rootRedirectsAway && $hasLogin && $weakRootReputation) {
+                $bad[] = sprintf(
+                    'Root domain redirects away to %s while the subdomain serves interactive content.',
+                    (string) ($corr['root']['final_domain'] ?? 'another domain')
+                );
+                $risk += 15;
+            }
+
+            if ($contentDivergent && $hasLogin) {
+                $neutral[] = 'Subdomain content differs significantly from the root domain.';
+                $risk += 5;
+            }
+        }
+
+        if (is_array($content)) {
+            $pp = $content['phishing_patterns'] ?? [];
+            if (is_array($pp)) {
+                if (!empty($pp['login_with_brand_text'])) {
+                    $brands = $pp['brand_names_in_text'] ?? [];
+                    $bad[] = sprintf(
+                        'Login form combined with brand mention(s) %s in page text on an unofficial domain.',
+                        is_array($brands) && $brands !== [] ? implode(', ', $brands) : '(unknown)'
+                    );
+                    $risk += 30;
+                }
+
+                if (!empty($pp['favicon_brand_mismatch'])) {
+                    if ($hasLogin || (is_array($bc) && !empty($bc['is_mismatch']))) {
+                        $bad[] = 'Favicon hotlinked from a brand official domain on an unrelated page (possible site clone).';
+                        $risk += 20;
+                    } else {
+                        $neutral[] = 'Favicon loaded from a third-party brand domain.';
+                    }
+                }
+
+                if (!empty($pp['meta_refresh_external'])) {
+                    $bad[] = 'Meta-refresh redirect pointing to another domain.';
+                    $risk += 10;
+                }
+
+                $js = $pp['js_signals'] ?? [];
+                if (is_array($js)) {
+                    if (!empty($js['has_form_injection']) && $hasLogin) {
+                        $bad[] = 'JavaScript injects a credential form into the page.';
+                        $risk += 20;
+                    }
+                    if (!empty($js['has_eval_atob']) || (!empty($js['has_obfuscation']) && (float) ($js['suspicious_score'] ?? 0) >= 0.4)) {
+                        $bad[] = 'Heavily obfuscated JavaScript detected.';
+                        $risk += 10;
+                    }
+                    if (!empty($js['has_crypto_wallet_hooks'])) {
+                        $bad[] = 'Cryptocurrency wallet API hooks detected.';
+                        $risk += 15;
                     }
                 }
             }

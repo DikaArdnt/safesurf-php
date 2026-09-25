@@ -9,13 +9,15 @@ use SafeSurf\Checks\DnsSignals;
 use SafeSurf\Checks\Entropy;
 use SafeSurf\Checks\Homoglyph;
 use SafeSurf\Checks\HttpCombined;
+use SafeSurf\Checks\RootDomainCorrelation;
+use SafeSurf\Checks\SubdomainSignals;
 use SafeSurf\Checks\TldSignals;
 use SafeSurf\Checks\TlsCombined;
 use SafeSurf\Checks\UrlSignals;
 use SafeSurf\Config;
 use SafeSurf\Service\DomainInfo;
 use SafeSurf\Service\Rank;
-use SafeSurf\Service\ThreatFeeds\PhishTank;
+use SafeSurf\Service\ThreatFeeds\FeedRunner;
 use SafeSurf\Service\Typosquat;
 use SafeSurf\Util\DomainUtil;
 
@@ -85,6 +87,8 @@ final class Analyzer
 
         $subCount = self::timed('subdomain_check', $timings, fn() => UrlSignals::subdomainCount($normalized, $config), $errors);
 
+        $subdomainSignals = self::timed('subdomain_signals_check', $timings, fn() => SubdomainSignals::analyze($normalized, $domain, $config), $errors);
+
         $domainInfo = self::timed('whois_lookup', $timings, fn() => DomainInfo::lookup($domain, $config), $errors);
 
         $tlsCombined = self::timed('tls_combined_check', $timings, fn() => self::cached("tls_combined:$domain", $config->ttlTlsCombinedSeconds, $config, fn() => TlsCombined::check($domain)), $errors);
@@ -93,23 +97,36 @@ final class Analyzer
 
         $content = self::timed('content_check', $timings, fn() => self::cached("content_check:$normalized", $config->ttlContentSeconds, $config, fn() => Content::analyze($normalized, $config)), $errors);
 
-        $homoglyph = self::timed('homoglyph_check', $timings, fn() => Homoglyph::hasHomoglyphs($domain), $errors);
+        $homoglyph = self::timed('homoglyph_check', $timings, fn() => Homoglyph::analyze($domain), $errors);
 
-        $phish = self::timed('phishtank_check', $timings, function () use ($normalized, $config) {
-            $cacheKey = "phishtank:$normalized";
-            if ($config->cache !== null) {
-                $cached = $config->cache->getJson($cacheKey);
-                if (is_array($cached)) {
-                    $cached['from_cache'] = true;
-                    return $cached;
-                }
+        $host = DomainUtil::hostFromUrl($normalized) ?? '';
+        $correlation = null;
+        $rootData = null;
+        $isSubdomainHost = $host !== '' && $host !== $domain && !filter_var($host, FILTER_VALIDATE_IP);
+        if ($isSubdomainHost && $config->enableRootDomainCorrelation) {
+            $rootData = self::timed('root_domain_correlation', $timings, fn() => self::cached("root_correlation:$domain", $config->ttlRootDomainCorrelationSeconds, $config, fn() => RootDomainCorrelation::fetchRootData($domain, $config)), $errors);
+        }
+
+        if ($isSubdomainHost) {
+            $subIps = self::timed('subdomain_ip_resolution', $timings, fn() => self::cached("ip_resolution:$host", $config->ttlIpResolutionSeconds, $config, fn() => DnsSignals::ipAddresses($host)), $errors);
+            $correlation = RootDomainCorrelation::correlate(
+                is_array($rootData) ? $rootData : null,
+                is_array($content) ? $content : null,
+                is_array($subIps) ? array_values($subIps) : [],
+                is_array($ips) ? array_values($ips) : []
+            );
+        }
+
+        $threatFeeds = self::timed('threat_feeds_check', $timings, fn() => FeedRunner::run($normalized, $config), $errors);
+
+        // Preserve the legacy 'phishing' field (PhishTank result shape).
+        $phish = null;
+        foreach (is_array($threatFeeds) ? ($threatFeeds['results'] ?? []) : [] as $tf) {
+            if (is_array($tf) && ($tf['feed'] ?? '') === 'phishtank' && ($tf['checked'] ?? false)) {
+                $phish = $tf['detail'];
+                break;
             }
-            $val = PhishTank::check($normalized, $config);
-            if (is_array($val) && $config->cache !== null) {
-                $config->cache->setJson($cacheKey, $val, $config->ttlPhishTankSeconds);
-            }
-            return $val;
-        }, $errors);
+        }
 
         $typo = self::timed('typosquat_check', $timings, fn() => Typosquat::check($domain, $config), $errors);
 
@@ -132,7 +149,7 @@ final class Analyzer
                     'contains_punycode' => (bool) $puny,
                     'too_long' => (bool) $tooLong,
                     'too_deep' => (bool) $tooDeep,
-                    'has_homoglyph' => (bool) $homoglyph,
+                    'has_homoglyph' => (bool) ($homoglyph['has_homoglyph'] ?? false),
                     'subdomain_count' => (int) $subCount,
                     'keywords' => [
                         'has_keywords' => (bool) ($kw['present'] ?? false),
@@ -140,6 +157,7 @@ final class Analyzer
                         'categories' => $kw['categories'] ?? [],
                     ],
                 ],
+                'subdomain' => is_array($subdomainSignals) ? $subdomainSignals : [],
             ],
             'infrastructure' => [
                 'ip_addresses' => is_array($ips) ? array_values($ips) : [],
@@ -170,8 +188,11 @@ final class Analyzer
             'tls_info' => $tlsCombined['tls_info'] ?? [],
             'content_data' => $content,
             'domain_randomness' => $entropy,
+            'homoglyph_result' => is_array($homoglyph) ? $homoglyph : null,
+            'correlation' => $correlation,
             'typosquat_result' => $typo,
             'phishing' => $phish,
+            'threat_feeds' => $threatFeeds,
             'performance' => [
                 'total_time' => self::formatDuration(microtime(true) - $t0),
                 'timings' => $timingsList,

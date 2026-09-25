@@ -39,6 +39,11 @@ final class TlsCombined
             return ['tls_info' => $tlsInfo, 'ssl_info' => $sslInfo, 'error' => 'invalid_domain'];
         }
 
+        $pinnedIp = \SafeSurf\Util\HttpClient::resolveFirstPublicIp($domain);
+        if ($pinnedIp === null) {
+            return ['tls_info' => $tlsInfo, 'ssl_info' => $sslInfo, 'error' => 'dns_resolution_failed'];
+        }
+
         $cert = null;
         $err = null;
 
@@ -53,7 +58,7 @@ final class TlsCombined
         ]);
 
         $fp = @stream_socket_client(
-            "ssl://$domain:443",
+            "ssl://$pinnedIp:443",
             $errno,
             $errstr,
             5.0,
@@ -156,7 +161,7 @@ final class TlsCombined
         }
 
 
-        $sslInfo['chain_valid'] = self::verifyChain($domain);
+        $sslInfo['chain_valid'] = self::verifyChain($domain, $pinnedIp);
         if (!$sslInfo['chain_valid']) {
             $sslInfo['reasons'][] = 'cert chain invalid';
         }
@@ -166,7 +171,7 @@ final class TlsCombined
         return ['tls_info' => $tlsInfo, 'ssl_info' => $sslInfo, 'error' => $err];
     }
 
-    private static function verifyChain(string $domain): bool
+    private static function verifyChain(string $domain, string $pinnedIp): bool
     {
         $ctx = stream_context_create([
             'ssl' => [
@@ -180,7 +185,7 @@ final class TlsCombined
         ]);
 
         $fp = @stream_socket_client(
-            "ssl://$domain:443",
+            "ssl://$pinnedIp:443",
             $errno,
             $errstr,
             5.0,

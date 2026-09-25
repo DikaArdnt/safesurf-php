@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace SafeSurf;
 
 use SafeSurf\Cache\CacheInterface;
+use SafeSurf\Service\ThreatFeeds\ThreatFeedInterface;
+use SafeSurf\Service\ThreatFeeds\ThreatFeeds;
 
 final class Config
 {
@@ -22,10 +24,26 @@ final class Config
         public int $ttlWhoisSeconds = 86400,
         public int $ttlHttpCombinedSeconds = 10800,
         public int $ttlTlsCombinedSeconds = 86400,
-        public int $ttlPhishTankSeconds = 10800,
         public int $ttlContentSeconds = 10800,
         public int $ttlAnalyzeResultSeconds = 86400,
-        public ?string $phishTankApiKey = null,
-        public string $phishTankUserAgent = 'phishtank/SafeSurfPHP'
-    ) {}
+        public int $maxBodyBytes = 5242880,
+        public bool $enableRootDomainCorrelation = true,
+        public int $rootCorrelationMaxHops = 3,
+        public int $ttlRootDomainCorrelationSeconds = 21600,
+        public int $dnsQueryTimeoutMs = 2000,
+        public ?ThreatFeeds $threatFeeds = null
+    ) {
+        $this->threatFeeds ??= new ThreatFeeds();
+    }
+
+    public function threatFeedSetup(): ThreatFeeds
+    {
+        return $this->threatFeeds;
+    }
+
+    public function addThreatFeed(ThreatFeedInterface ...$feeds): self
+    {
+        $this->threatFeeds->addFeed(...$feeds);
+        return $this;
+    }
 }

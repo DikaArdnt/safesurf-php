@@ -46,6 +46,55 @@ final class Brand
         return $res;
     }
 
+    /**
+     * @return list<string>
+     */
+    public static function namesInText(string $text): array
+    {
+        $text = strtolower($text);
+        if ($text === '') {
+            return [];
+        }
+
+        $found = [];
+        foreach (DataFiles::brands() as $brandName => $entry) {
+            $keywords = $entry['title_keywords'] ?? [];
+            if (!is_array($keywords)) {
+                continue;
+            }
+            foreach ($keywords as $kw) {
+                if (!is_string($kw) || $kw === '') {
+                    continue;
+                }
+                if (str_contains($text, strtolower($kw))) {
+                    $found[] = $brandName;
+                    break;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function officialDomainsFor(string $brandName): array
+    {
+        $entry = DataFiles::brands()[$brandName] ?? null;
+        if (!is_array($entry)) {
+            return [];
+        }
+        $official = $entry['official_domains'] ?? [];
+        if (!is_array($official)) {
+            return [];
+        }
+        return array_values(array_map(
+            fn($d) => is_string($d) ? strtolower($d) : '',
+            $official
+        ));
+    }
+
     private static function isOfficialDomain(string $domain, array $officialDomains): bool
     {
         foreach ($officialDomains as $official) {

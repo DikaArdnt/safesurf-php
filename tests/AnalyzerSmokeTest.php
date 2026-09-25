@@ -18,7 +18,7 @@ final class AnalyzerSmokeTest extends TestCase
 
     public function testAnalyzeIpUrl(): void
     {
-        $config = new Config(publicSuffixListPath: __DIR__ . '/../storage/test_psl.dat');
+        $config = new Config();
         $out = Analyzer::analyze('https://1.1.1.1', $config);
         $this->assertArrayHasKey('url', $out);
         $this->assertArrayHasKey('domain', $out);

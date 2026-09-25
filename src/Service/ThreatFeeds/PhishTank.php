@@ -6,18 +6,29 @@ namespace SafeSurf\Service\ThreatFeeds;
 
 use SafeSurf\Config;
 
-final class PhishTank
+/**
+ * Community-driven phishing database (phishtank.com).
+ *
+ * @feed-category phishing
+ */
+final class PhishTank implements ThreatFeedInterface
 {
     private const API_URL = 'https://checkurl.phishtank.com/checkurl/';
 
-    public static function check(string $targetUrl, Config $config): ?array
+    public function name(): string
     {
+        return 'phishtank';
+    }
+
+    public function check(string $targetUrl, Config $config): ?array
+    {
+        $setup = $config->threatFeeds ?? new ThreatFeeds();
         $data = [
             'url' => $targetUrl,
             'format' => 'json',
         ];
-        if (is_string($config->phishTankApiKey) && $config->phishTankApiKey !== '') {
-            $data['app_key'] = $config->phishTankApiKey;
+        if (is_string($setup->phishTankApiKey) && $setup->phishTankApiKey !== '') {
+            $data['app_key'] = $setup->phishTankApiKey;
         }
 
         $ch = curl_init();
@@ -32,7 +43,7 @@ final class PhishTank
             CURLOPT_POSTFIELDS => http_build_query($data),
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/x-www-form-urlencoded',
-                "User-Agent: {$config->phishTankUserAgent}",
+                "User-Agent: {$setup->phishTankUserAgent}",
             ],
             CURLOPT_TIMEOUT_MS => 5000,
             CURLOPT_CONNECTTIMEOUT_MS => 1000,
@@ -41,11 +52,6 @@ final class PhishTank
         $raw = curl_exec($ch);
         $errno = curl_errno($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-
-        // Deprecated in PHP 8.5, but we want to support older versions as well.
-        if (function_exists('curl_close')) {
-            curl_close($ch);
-        }
 
         if ($errno !== 0 || !is_string($raw) || $raw === '' || $status !== 200) {
             return null;

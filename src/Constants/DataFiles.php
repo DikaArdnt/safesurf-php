@@ -12,6 +12,7 @@ final class DataFiles
     private static ?array $urlKeywords = null;
     private static ?array $brands = null;
     private static ?array $hostingPlatforms = null;
+    private static ?array $sensitiveSubdomains = null;
 
     public static function riskyTlds(): array
     {
@@ -56,6 +57,15 @@ final class DataFiles
         }
         self::$urlKeywords = require __DIR__ . '/../../assets/url_keywords.php';
         return self::$urlKeywords;
+    }
+
+    public static function sensitiveSubdomains(): array
+    {
+        if (self::$sensitiveSubdomains !== null) {
+            return self::$sensitiveSubdomains;
+        }
+        self::$sensitiveSubdomains = require __DIR__ . '/../../assets/sensitive_subdomains.php';
+        return self::$sensitiveSubdomains;
     }
 
     public static function brands(): array

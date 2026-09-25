@@ -1,33 +1,58 @@
 # SafeSurf (PHP Library)
 
+A PHP 8+ library that analyzes a URL for phishing indicators and returns a transparent, JSON-ready report: every signal inspected, the raw evidence, a risk/trust score breakdown, and a final verdict of Safe, Suspicious, or Risky.
+
 ## Disclaimer
 
-This project is a PHP-native rewrite of the repository [abhizaik/urlvet](https://github.com/abhizaik/urlvet).
+This project is a PHP-native rewrite of the repository [urlvet/urlvet](https://github.com/urlvet/urlvet).
 
 SafeSurf for PHP focuses on transparent analysis results (reasons), scores, and verdicts.
 
 ## Features
 
-- Real-time URL analysis: redirect chain, HTTP status, HSTS
-- Domain & DNS signals: rank (top-1m), IP resolution, NS/MX validity, domain age, domain expiry
-- URL signals: keywords, URL shortener, excessive length/depth, subdomain count, punycode
-- TLS/SSL signals: TLS presence, issuer, certificate age, chain validation (best effort)
-- Page content (best effort): title, login/payment/personal form detection, hidden iframe, brand mismatch
-- Threat feed: PhishTank (optional, depending on API availability)
-- Optional caching via phpfastcache to speed up network lookups and data parsing
+- **URL signals**: known shorteners, raw-IP hosts, punycode, excessive length or depth, subdomain count, phishing keywords
+- **Domain & DNS signals**: global traffic rank (top-1M), IP resolution, NS/MX validity, trusted/risky/hosting-platform TLD classification via the Public Suffix List
+- **Registration data**: RDAP (WHOIS fallback) for domain age, expiry, registry status, and DNSSEC
+- **Subdomain analysis**: sensitive labels (`login.`, `secure.`, `verify.`, ...), brand-name impersonation in subdomains, and root-domain vs subdomain correlation (parked root, off-domain redirect, content similarity, infrastructure split)
+- **Homoglyph / IDN spoofing**: punycode decoding, mixed-script (Latin + Cyrillic/Greek/Armenian) and fullwidth lookalike detection, without flagging legitimate single-script IDNs
+- **Typosquatting**: Levenshtein distance 1-2 and combo-squatting against the top-5000 domains
+- **Domain randomness**: entropy and DGA heuristics for the domain label
+- **TLS/SSL inspection**: issuer, certificate age, Certificate Transparency, chain validation, hostname match (probe pinned to a pre-resolved IP)
+- **HTTP analysis**: manual per-hop redirect chain, final status, HSTS, cross-domain jump detection
+- **Page content analysis**: login/payment/personal forms, forms submitting off-domain, hidden iframes, brand mismatch, favicon/meta-refresh/external-asset patterns, obfuscated or injected JavaScript, crypto-wallet hooks
+- **Threat feeds**: PhishTank (optional API key) and external plugin feeds; each feed's PHPDoc is injected into the result as its description and category
+- **Transparent scoring**: risk/trust/final scores (0-100) with plain-English reasons for every signal
+- **Caching**: optional per-check TTL caching via phpfastcache, or any adapter implementing `SafeSurf\Cache\CacheInterface`
+
+## Documentation
+
+Full documentation lives in [`docs/`](./docs):
+
+| Document                                       | Contents                                                          |
+| ---------------------------------------------- | ----------------------------------------------------------------- |
+| [Getting Started](./docs/getting-started.md)   | Installation, CLI usage, first analysis in code, caching          |
+| [Configuration](./docs/configuration.md)       | Every `Config` option, cache TTLs, data assets                    |
+| [Detection Checks](./docs/checks.md)           | The full signal catalog: what each check inspects and returns     |
+| [Scoring & Verdicts](./docs/scoring.md)        | How the scores and the Safe/Suspicious/Risky verdict are computed |
+| [Output Reference](./docs/output-reference.md) | The complete result structure, field by field, with real examples |
+| [Threat Feeds](./docs/threat-feeds.md)         | Built-in feeds and the plugin system (PHPDoc injection)           |
+| [Security](./docs/security.md)                 | SSRF-safe fetching, IP pinning, body limits                       |
+| [Extending](./docs/extending.md)               | Adding feeds, data, checks, and tests                             |
 
 ## System Requirements
 
 - PHP >= 8.0
 - PHP extensions: `curl`, `openssl`, `dom`, `libxml`
 
-## Installation (via Composer / Packagist)
+## Installation
+
+Via Composer / Packagist:
 
 ```bash
 composer require safesurf/safesurf
 ```
 
-## Installation (from this source repository)
+Or from this source repository:
 
 ```bash
 git clone https://github.com/DikaArdnt/safesurf-php.git
@@ -37,15 +62,16 @@ composer install
 
 ## Quick Start
 
+From the CLI (uses the file cache in `storage/cache` and pretty-prints the JSON):
+
 ```bash
-php examples/analyze.php example.com
+php examples/analyze.php https://example.com
 ```
 
-## Using in Your Code (without cache)
+In your code:
 
 ```php
 <?php
-
 declare(strict_types=1);
 
 require __DIR__ . '/vendor/autoload.php';
@@ -53,14 +79,17 @@ require __DIR__ . '/vendor/autoload.php';
 use SafeSurf\SafeSurf;
 
 $result = SafeSurf::analyze('https://example.com');
-echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+echo $result['result']['verdict'];          // "Safe" | "Suspicious" | "Risky"
+echo $result['result']['final_score'];      // 0-100
+print_r($result['result']['reasons']);      // plain-English good/neutral/bad reasons
 ```
 
-## Using with phpfastcache Cache (recommended)
+### With caching (recommended)
+
+Any implementation of `SafeSurf\Cache\CacheInterface` works; the bundled adapter wraps phpfastcache (already a dependency):
 
 ```php
 <?php
-
 declare(strict_types=1);
 
 require __DIR__ . '/vendor/autoload.php';
@@ -72,61 +101,74 @@ use SafeSurf\Config;
 use SafeSurf\SafeSurf;
 
 $pool = CacheManager::getInstance('Files', new ConfigurationOption([
-  'path' => __DIR__ . '/storage/cache',
+    'path' => __DIR__ . '/storage/cache',
 ]));
 
 $config = new Config(cache: new PhpFastCacheAdapter($pool));
 $result = SafeSurf::analyze('https://example.com', $config);
-echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
 ```
+
+## How the verdict works
+
+The scorer combines weighted signals into `risk_score` and `trust_score`, then computes
+`final_score = 50 + (trust − risk) / 2` (clamped to 0-100):
+
+| Verdict      | Final score |
+| ------------ | ----------- |
+| `Safe`       | >= 65       |
+| `Suspicious` | 30-64       |
+| `Risky`      | < 30        |
+
+Design principles: one weak signal never produces a Risky verdict on its own; strong indicators (raw IP, punycode, verified PhishTank listing, password form without TLS) carry heavy weights; correlation findings only score as combinations. See [Scoring & Verdicts](./docs/scoring.md) for the complete weight tables.
+
+## Example output
+
+Real output of `SafeSurf::analyze('https://example.com')`, trimmed. The full structure and field docs are in the [Output Reference](./docs/output-reference.md).
 
 ## Configuration
 
-The main configuration is located in [Config.php](./src/Config.php). The most commonly used fields are:
+All options live in [`Config.php`](./src/Config.php) and are passed as named arguments. The most common ones:
 
-- `cache`: cache implementation (optional). Ready-to-use adapter: [PhpFastCacheAdapter.php](./src/Cache/PhpFastCacheAdapter.php)
-- `rankCsvPath`: path to `assets/top-1m.csv` for rank lookup
-- `publicSuffixListPath`: PSL path (`storage/public_suffix_list.dat`), used to extract the registrable domain and TLD
-- `httpTimeoutMs`, `httpHeaderTimeoutMs`, `maxRedirects`, `userAgent`: HTTP request controls
-- Cache TTLs: `ttlDomainRankSeconds`, `ttlIpResolutionSeconds`, `ttlDnsValiditySeconds`, `ttlWhoisSeconds`, `ttlHttpCombinedSeconds`, `ttlTlsCombinedSeconds`, `ttlContentSeconds`, `ttlAnalyzeResultSeconds`
-- PhishTank (optional): `phishTankApiKey`, `phishTankUserAgent`
+- `cache`: cache adapter (see [Getting Started](./docs/getting-started.md#using-a-cache))
+- Threat feeds: configured on the dedicated `ThreatFeeds` setup (`addThreatFeed()`, `withPhishTank()`, per-feed options); see [Threat Feeds](./docs/threat-feeds.md#registering-feeds-the-threatfeeds-setup)
+- `enableRootDomainCorrelation` (default `true`), `rootCorrelationMaxHops`
+- HTTP controls: `httpTimeoutMs`, `httpHeaderTimeoutMs`, `maxRedirects`, `userAgent`, `maxBodyBytes`
+- Cache TTLs: `ttlDomainRankSeconds`, `ttlWhoisSeconds`, `ttlContentSeconds`, ... (full list in [Configuration](./docs/configuration.md); feed TTLs live on the `ThreatFeeds` setup)
 
-## Output (Result Structure)
+## Threat Feed Plugins
 
-`SafeSurf::analyze()` returns an array that is suitable for `json_encode()`:
+Feeds implement `SafeSurf\Service\ThreatFeeds\ThreatFeedInterface`. The class PHPDoc of every feed is injected into the result: the summary becomes `threat_feeds.results[].description` and a `@feed-category` tag becomes `results[].category`, so consumers always know what each feed checks.
 
-- `url`, `domain`
-- `features`
-  - `rank`
-  - `tld`: `tld`, `is_trusted_tld`, `is_risky_tld`, `is_icann`, `is_hosting_platform`
-  - `url`: `url_shortener`, `uses_ip`, `contains_punycode`, `too_long`, `too_deep`, `has_homoglyph`, `subdomain_count`, `keywords`
-- `infrastructure`: `ip_addresses`, `nameservers_valid`, `ns_hosts`, `mx_records_valid`, `mx_hosts`
-- `domain_info`: RDAP/WHOIS results (may be `null` if lookup fails)
-- `analysis`: redirect chain, HTTP status, HSTS
-- `ssl_info` and `tls_info`: TLS/SSL summary
-- `content_data`: HTML parsing summary (may be `null`)
-- `domain_randomness`: entropy/randomness results for the domain label
-- `typosquat_result`: typosquatting/combo-squatting results
-- `phishing`: PhishTank check results (may be `null`)
-- `result`: final score, verdict, and reasons
-- `performance`: total time and timing list
-- `incomplete`, `errors`: present if some tasks fail (network/timeouts)
+Severity mapping in the risk score: `phishing`/`malware` = 70, `blocked` = 25, `unwanted` = 20, `info` = 0. Full guide: [Threat Feeds](./docs/threat-feeds.md).
 
 ## Security & Operational Notes
 
-- SSRF protection: HTTP requests resolve IPs and reject private, link-local, and loopback IPs for target hosts/IPs.
-- TLS/SSL validation is best effort: some environments may fail to verify the chain due to CA store or configuration issues.
-- Some modules require internet access (IANA RDAP bootstrap, PSL download, PhishTank).
-- Content analysis performs GET requests and HTML parsing; enable caching to reduce load.
+- **SSRF protection**: every HTTP fetch resolves DNS first, rejects private/loopback/link-local/metadata IPs (including IPv4-mapped IPv6), pins the connection to the validated IP (`CURLOPT_RESOLVE`), never lets curl follow redirects (each hop is re-validated), and caps the download size. Details: [Security](./docs/security.md).
+- TLS/SSL validation is best effort: some environments fail chain verification due to CA store or proxy configuration.
+- Some modules need internet access on first use (PSL download, IANA RDAP bootstrap, PhishTank); the PSL is downloaded automatically to `storage/public_suffix_list.dat` if missing.
+- Content analysis performs GET requests and HTML parsing. Enable caching to reduce load when scanning at volume.
 
 ## Development
 
-Run tests:
+Run the test suite:
 
 ```bash
-cd safesurf-php
-vendor/bin/phpunit
+composer tests
 ```
+
+Run Rector to apply automatic code upgrades:
+
+```bash
+composer rector
+```
+
+Run Rector in dry-run mode to see what changes would be made without actually applying them:
+
+```bash
+composer rector:dry-run
+```
+
+Extension guide (new feeds, data files, checks): [Extending](./docs/extending.md).
 
 ## License
 

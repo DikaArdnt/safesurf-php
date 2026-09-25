@@ -26,7 +26,8 @@
     "phpfastcache/phpfastcache": "^9.2"
   },
   "require-dev": {
-    "phpunit/phpunit": "^10.0"
+    "phpunit/phpunit": "^10.0",
+    "rector/rector": "^2.5"
   },
   "suggest": {
     "jeremykendall/php-domain-parser": "Provides robust domain parsing for URL analysis.",
@@ -34,7 +35,9 @@
     "phpfastcache/phpfastcache": "Adds caching support to improve performance of repeated checks."
   },
   "scripts": {
-    "tests": "vendor/bin/phpunit tests/"
+    "tests": "vendor/bin/phpunit tests/",
+    "rector": "vendor/bin/rector process --ansi",
+    "rector:dry-run": "vendor/bin/rector process --dry-run --ansi"
   },
   "autoload": {
     "psr-4": {
