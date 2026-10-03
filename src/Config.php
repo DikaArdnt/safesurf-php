@@ -31,15 +31,7 @@ final class Config
         public int $rootCorrelationMaxHops = 3,
         public int $ttlRootDomainCorrelationSeconds = 21600,
         public int $dnsQueryTimeoutMs = 2000,
-        public ?ThreatFeeds $threatFeeds = null,
-        /** Feature toggles: a disabled check is skipped entirely and its result field turns null/neutral. All default to true (full analysis). */
-        public bool $enableRank = true,
-        public bool $enableDns = true,
-        public bool $enableHttp = true,
-        public bool $enableTls = true,
-        public bool $enableContent = true,
-        public bool $enableWhois = true,
-        public bool $enableThreatFeeds = true
+        public ?ThreatFeeds $threatFeeds = null
     ) {
         $this->threatFeeds ??= new ThreatFeeds();
     }

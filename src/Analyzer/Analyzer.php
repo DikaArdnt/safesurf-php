@@ -43,19 +43,7 @@ final class Analyzer
             return ['error' => 'invalid_domain'];
         }
 
-        // The enabled-flags fingerprint is part of the cache key so toggling
-        // features never serves a result produced under a different feature set.
-        $flagSet = implode(',', [
-            (int) $config->enableRank,
-            (int) $config->enableDns,
-            (int) $config->enableHttp,
-            (int) $config->enableTls,
-            (int) $config->enableContent,
-            (int) $config->enableWhois,
-            (int) $config->enableThreatFeeds,
-            (int) $config->enableRootDomainCorrelation,
-        ]);
-        $resultKey = "analyze_result:$normalized:$flagSet";
+        $resultKey = "analyze_result:$normalized";
         if ($config->cache !== null) {
             $cached = $config->cache->getJson($resultKey);
             if (is_array($cached)) {
@@ -67,13 +55,13 @@ final class Analyzer
         $timings = [];
         $errors = [];
 
-        $rank = $config->enableRank ? self::timed('domain_rank', $timings, fn() => self::cached("domain_rank:$domain", $config->ttlDomainRankSeconds, $config, fn() => Rank::lookup($domain, $config)), $errors) : null;
+        $rank = self::timed('domain_rank', $timings, fn() => self::cached("domain_rank:$domain", $config->ttlDomainRankSeconds, $config, fn() => Rank::lookup($domain, $config)), $errors);
 
-        $http = $config->enableHttp ? self::timed('http_combined_check', $timings, fn() => self::cached("http_combined:$normalized", $config->ttlHttpCombinedSeconds, $config, fn() => HttpCombined::check($normalized, $config)), $errors) : null;
+        $http = self::timed('http_combined_check', $timings, fn() => self::cached("http_combined:$normalized", $config->ttlHttpCombinedSeconds, $config, fn() => HttpCombined::check($normalized, $config)), $errors);
 
         $usesIp = self::timed('ip_check', $timings, fn() => UrlSignals::usesIp($normalized), $errors);
 
-        $ips = $config->enableDns ? self::timed('ip_resolution', $timings, fn() => self::cached("ip_resolution:$domain", $config->ttlIpResolutionSeconds, $config, fn() => DnsSignals::ipAddresses($domain)), $errors) : null;
+        $ips = self::timed('ip_resolution', $timings, fn() => self::cached("ip_resolution:$domain", $config->ttlIpResolutionSeconds, $config, fn() => DnsSignals::ipAddresses($domain)), $errors);
 
         $puny = self::timed('punycode_check', $timings, fn() => UrlSignals::containsPunycode($normalized), $errors);
 
@@ -86,7 +74,7 @@ final class Analyzer
 
         $kw = self::timed('keywords_check', $timings, fn() => UrlSignals::keywordMatches($normalized), $errors);
 
-        $dns = $config->enableDns ? self::timed('dns_validity_check', $timings, fn() => self::cached("dns_validity:$domain", $config->ttlDnsValiditySeconds, $config, function () use ($domain) {
+        $dns = self::timed('dns_validity_check', $timings, fn() => self::cached("dns_validity:$domain", $config->ttlDnsValiditySeconds, $config, function () use ($domain) {
             $ns = DnsSignals::nsValidity($domain);
             $mx = DnsSignals::mxValidity($domain);
             return [
@@ -95,19 +83,19 @@ final class Analyzer
                 'mx_valid' => (bool) $mx['valid'],
                 'mx_hosts' => $mx['hosts'],
             ];
-        }), $errors) : null;
+        }), $errors);
 
         $subCount = self::timed('subdomain_check', $timings, fn() => UrlSignals::subdomainCount($normalized, $config), $errors);
 
         $subdomainSignals = self::timed('subdomain_signals_check', $timings, fn() => SubdomainSignals::analyze($normalized, $domain, $config), $errors);
 
-        $domainInfo = $config->enableWhois ? self::timed('whois_lookup', $timings, fn() => DomainInfo::lookup($domain, $config), $errors) : null;
+        $domainInfo = self::timed('whois_lookup', $timings, fn() => DomainInfo::lookup($domain, $config), $errors);
 
-        $tlsCombined = $config->enableTls ? self::timed('tls_combined_check', $timings, fn() => self::cached("tls_combined:$domain", $config->ttlTlsCombinedSeconds, $config, fn() => TlsCombined::check($domain)), $errors) : null;
+        $tlsCombined = self::timed('tls_combined_check', $timings, fn() => self::cached("tls_combined:$domain", $config->ttlTlsCombinedSeconds, $config, fn() => TlsCombined::check($domain)), $errors);
 
         $entropy = self::timed('entropy_check', $timings, fn() => Entropy::analyzeDomainRandomness($domain), $errors);
 
-        $content = $config->enableContent ? self::timed('content_check', $timings, fn() => self::cached("content_check:$normalized", $config->ttlContentSeconds, $config, fn() => Content::analyze($normalized, $config)), $errors) : null;
+        $content = self::timed('content_check', $timings, fn() => self::cached("content_check:$normalized", $config->ttlContentSeconds, $config, fn() => Content::analyze($normalized, $config)), $errors);
 
         $homoglyph = self::timed('homoglyph_check', $timings, fn() => Homoglyph::analyze($domain), $errors);
 
@@ -120,7 +108,7 @@ final class Analyzer
         }
 
         if ($isSubdomainHost) {
-            $subIps = $config->enableDns ? self::timed('subdomain_ip_resolution', $timings, fn() => self::cached("ip_resolution:$host", $config->ttlIpResolutionSeconds, $config, fn() => DnsSignals::ipAddresses($host)), $errors) : null;
+            $subIps = self::timed('subdomain_ip_resolution', $timings, fn() => self::cached("ip_resolution:$host", $config->ttlIpResolutionSeconds, $config, fn() => DnsSignals::ipAddresses($host)), $errors);
             $correlation = RootDomainCorrelation::correlate(
                 is_array($rootData) ? $rootData : null,
                 is_array($content) ? $content : null,
@@ -129,7 +117,7 @@ final class Analyzer
             );
         }
 
-        $threatFeeds = $config->enableThreatFeeds ? self::timed('threat_feeds_check', $timings, fn() => FeedRunner::run($normalized, $config), $errors) : null;
+        $threatFeeds = self::timed('threat_feeds_check', $timings, fn() => FeedRunner::run($normalized, $config), $errors);
 
         // Preserve the legacy 'phishing' field (PhishTank result shape).
         $phish = null;
@@ -147,7 +135,7 @@ final class Analyzer
             'url' => $normalized,
             'domain' => $domain,
             'features' => [
-                'rank' => $rank !== null ? (int) $rank : null,
+                'rank' => (int) $rank,
                 'tld' => [
                     'tld' => (string) ($tld['tld'] ?? ''),
                     'is_trusted_tld' => !empty($tld['trusted']),
@@ -173,9 +161,9 @@ final class Analyzer
             ],
             'infrastructure' => [
                 'ip_addresses' => is_array($ips) ? array_values($ips) : [],
-                'nameservers_valid' => $dns['ns_valid'] ?? null,
+                'nameservers_valid' => (bool) ($dns['ns_valid'] ?? false),
                 'ns_hosts' => $dns['ns_hosts'] ?? [],
-                'mx_records_valid' => $dns['mx_valid'] ?? null,
+                'mx_records_valid' => (bool) ($dns['mx_valid'] ?? false),
                 'mx_hosts' => $dns['mx_hosts'] ?? [],
             ],
             'domain_info' => $domainInfo,
@@ -196,8 +184,8 @@ final class Analyzer
                 ],
                 'is_hsts_supported' => (bool) ($http['supports_hsts'] ?? false),
             ],
-            'ssl_info' => $tlsCombined['ssl_info'] ?? null,
-            'tls_info' => $tlsCombined['tls_info'] ?? null,
+            'ssl_info' => $tlsCombined['ssl_info'] ?? [],
+            'tls_info' => $tlsCombined['tls_info'] ?? [],
             'content_data' => $content,
             'domain_randomness' => $entropy,
             'homoglyph_result' => is_array($homoglyph) ? $homoglyph : null,

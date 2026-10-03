@@ -1,6 +1,46 @@
 # Detection Checks
 
-`SafeSurf::analyze()` runs every check below through a timing/error wrapper: a check that throws (network down, timeout, malformed data) is captured into `errors[]` and reported as `incomplete: true` — it never aborts the analysis. Checks that hit the network go through the SSRF-safe `HttpClient` (see [Security](security.md)) and are cached with per-check TTLs. Network-backed checks can be turned off individually via the `enable*` flags on `Config` (see [Configuration](configuration.md#feature-toggles)) — a disabled check is skipped and its output field carries `null`/neutral values that the scorer ignores.
+`SafeSurf::analyze()` runs every check below through a timing/error wrapper: a check that throws (network down, timeout, malformed data) is captured into `errors[]` and reported as `incomplete: true` — it never aborts the analysis. Checks that hit the network go through the SSRF-safe `HttpClient` (see [Security](security.md)) and are cached with per-check TTLs.
+
+## Running a single check
+
+Every check is a public static method on its own class — `SafeSurf::analyze()` is just the orchestrator that runs all of them. To analyze a URL with only the checks you care about, call the check classes directly instead of running the full pipeline:
+
+```php
+use SafeSurf\Checks\Content;
+use SafeSurf\Checks\DnsSignals;
+use SafeSurf\Config;
+use SafeSurf\Util\DomainUtil;
+
+$config = new Config();
+$url = DomainUtil::normalizeUrl('https://example.com/login');
+
+$dns = DnsSignals::nsValidity('example.com');   // ['valid' => bool, 'hosts' => [...]]
+$page = Content::analyze($url, $config);        // full content_data array, or null
+```
+
+Checks that take a `$url` argument expect the *normalized* URL, and several need the *registrable* domain — get both from `DomainUtil::normalizeUrl()` / `DomainUtil::registrableDomainFromUrl()`. Standalone calls bypass the Analyzer's timing/error wrapper and per-check caching; wrap them in your own try/catch (and cache) if you need that behavior.
+
+| Class | Entry points | Network |
+| --- | --- | --- |
+| `Checks\UrlSignals` | `usesIp()`, `containsPunycode()`, `tooLong()`, `tooDeep()`, `keywordMatches()`, `isUrlShortener()`, `subdomainCount()` | no |
+| `Checks\TldSignals` | `info($domain, $config)` | no (PSL file) |
+| `Checks\SubdomainSignals` | `analyze($url, $registrableDomain, $config)` | no |
+| `Checks\Homoglyph` | `analyze($domain)` | no |
+| `Checks\Entropy` | `analyzeDomainRandomness($domain)` | no |
+| `Checks\JsSignals` | `analyzeHtml($html)` | no |
+| `Checks\Brand` | `checkMismatch()`, `namesInText()`, `officialDomainsFor()` | no |
+| `Checks\Content` | `analyze($pageUrl, $config)`; pure parser: `analyzeHtml($body, $pageUrl, $config)` | yes (HTTP GET) |
+| `Checks\DnsSignals` | `ipAddresses()`, `nsValidity()`, `mxValidity()` | DNS |
+| `Checks\HttpCombined` | `check($url, $config)` | HTTP |
+| `Checks\TlsCombined` | `check($domain)` | TCP+TLS |
+| `Checks\RootDomainCorrelation` | `fetchRootData($domain, $config)`; pure combiner: `correlate(...)` | yes (HTTP) |
+| `Checks\Typosquat` (`Service\`) | `check($domain, $config)` | no (local CSV) |
+| `Service\Rank` | `lookup($domain, $config)` | no (local CSV) |
+| `Service\DomainInfo` | `lookup($domain, $config)` | RDAP/WHOIS |
+| `Service\ThreatFeeds\FeedRunner` | `run($url, $config)` | HTTP/DNS |
+
+Return shapes match the corresponding fields of the `analyze()` output (e.g. `Content::analyze()` produces `content_data`, `TlsCombined::check()` produces `ssl_info` + `tls_info`), so results stay compatible with `ResultScorer::generate()` if you assemble a partial response yourself.
 
 Quick overview:
 
