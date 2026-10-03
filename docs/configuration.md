@@ -48,6 +48,37 @@ Threat-feed configuration does **not** live in `Config` constructor args — eve
 | `ttlSeconds` / `withTtl()` | `10800` (3 h) | Shared cache TTL for every feed result; per-feed override via `setOption(name, 'ttl', seconds)`. |
 | `options` / `setOption()` / `option()` | `[]` | Generic per-feed option map — the extension point for feed-specific settings (api keys, endpoints, ...) so they never become `Config` fields. |
 
+### Feature toggles
+
+Network-backed checks can be turned off individually, e.g. to keep `analyze()` fast on latency-sensitive request paths. All flags default to `true` (full analysis), so existing callers are unaffected.
+
+| Field | Default | Disabled means |
+| --- | --- | --- |
+| `enableRank` | `true` | Skip the top-1M CSV scan. `features.rank` becomes `null` and the scorer applies no popularity signal in either direction (typosquatting keeps working — it reads the top-5000 head of the CSV itself). |
+| `enableDns` | `true` | Skip A/AAAA resolution and NS/MX validity. `infrastructure.nameservers_valid` / `mx_records_valid` become `null` (no signal, never the "missing DNS" penalty) and `ip_addresses` is empty. |
+| `enableHttp` | `true` | Skip the redirect-chain/status/HSTS probe. `analysis.redirection_result` falls back to a neutral single-hop chain and `is_hsts_supported` is `false`. |
+| `enableTls` | `true` | Skip the certificate probe. `ssl_info` / `tls_info` become `null`; the scorer's "password form over insecure connection" rule only fires when TLS was actually checked. |
+| `enableContent` | `true` | Skip the page download + HTML analysis. `content_data` is `null`. |
+| `enableWhois` | `true` | Skip RDAP/WHOIS. `domain_info` is `null` (age/expiry signals disappear; domain-age-dependent logic sees `age_days: 0`). |
+| `enableThreatFeeds` | `true` | Skip all threat-feed lookups (including PhishTank). `threat_feeds` and the legacy `phishing` field are `null`. |
+
+Semantics of a disabled check:
+
+- The field stays in the result (the output shape is a contract) but carries `null` or a neutral default — never a fabricated `false`/`0` that the scorer could misread as a bad signal. Pure local checks (URL structure, TLD, subdomain labels, homoglyph, entropy, typosquatting) always run.
+- `ResultScorer` treats `null` as "no signal": disabled checks contribute nothing to `risk_score`/`trust_score`, and `final_score` reflects only the checks that ran. A fully-blind run lands at the neutral 50.
+- The full-result cache key includes the enabled-flags fingerprint, so cached results are never reused across different feature sets.
+
+```php
+// fast profile: local signals + threat feeds only
+$config = new Config(
+    enableDns: false,
+    enableHttp: false,
+    enableTls: false,
+    enableContent: false,
+    enableWhois: false,
+);
+```
+
 ### Subdomain correlation
 
 | Field | Type | Default | Description |

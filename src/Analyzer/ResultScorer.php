@@ -14,8 +14,10 @@ final class ResultScorer
         $trust = 0;
         $risk = 0;
 
-        $rank = (int) ($resp['features']['rank'] ?? 0);
-        if ($rank === 0) {
+        // rank === null means the rank check was disabled: no popularity signal either way.
+        $rankValue = $resp['features']['rank'] ?? null;
+        $rank = (int) $rankValue;
+        if ($rankValue !== null && $rank === 0) {
             $isHostingPlatform = !empty($resp['features']['tld']['is_hosting_platform']);
             if ($isHostingPlatform) {
                 $neutral[] = sprintf('Unranked subdomain on %s (normal for personal or project pages).', (string) ($resp['features']['tld']['tld'] ?? 'unknown'));
@@ -23,13 +25,13 @@ final class ResultScorer
                 $bad[] = 'Very low traffic volume.';
                 $risk += 10;
             }
-        } elseif ($rank > 0 && $rank <= 10000) {
+        } elseif ($rankValue !== null && $rank > 0 && $rank <= 10000) {
             $good[] = sprintf('Global Giant: Ranked #%d worldwide.', $rank);
             $trust += 90;
-        } elseif ($rank > 50000) {
+        } elseif ($rankValue !== null && $rank > 50000) {
             $good[] = sprintf('Established website with moderate popularity (#%d).', $rank);
             $trust += 50;
-        } else {
+        } elseif ($rankValue !== null) {
             $good[] = sprintf('Niche website with standard traffic volume (#%d).', $rank);
             $trust += 20;
         }
@@ -106,7 +108,9 @@ final class ResultScorer
             $risk += 10;
         }
 
-        if (empty($resp['infrastructure']['nameservers_valid'])) {
+        // null = DNS check disabled (or errored): no signal, never a penalty.
+        $nsValid = $resp['infrastructure']['nameservers_valid'] ?? null;
+        if ($nsValid !== null && !$nsValid) {
             if ($isHostingPlatform) {
                 // Hosting platforms manage the entire DNS zone; individual subdomains have no own NS records.
             } else {
@@ -115,7 +119,8 @@ final class ResultScorer
             }
         }
 
-        if (empty($resp['infrastructure']['mx_records_valid']) && !$isHostingPlatform) {
+        $mxValid = $resp['infrastructure']['mx_records_valid'] ?? null;
+        if ($mxValid !== null && !$mxValid && !$isHostingPlatform) {
             $neutral[] = 'No email server configured for this domain.';
             $risk += 5;
         }
@@ -302,7 +307,8 @@ final class ResultScorer
                         $bad[] = 'CRITICAL: Form submits data to a different domain (common phishing tactic).';
                         $risk += 80;
                     }
-                    if (!empty($f['has_password']) && empty($resp['ssl_info']['has_tls'])) {
+                    // empty($resp['ssl_info']) means TLS was not checked — only penalize when the check ran and found no TLS.
+                    if (!empty($f['has_password']) && !empty($resp['ssl_info']) && empty($resp['ssl_info']['has_tls'])) {
                         $bad[] = 'DANGEROUS: Password form detected over insecure connection!';
                         $risk += 200;
                     }

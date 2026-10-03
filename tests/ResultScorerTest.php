@@ -285,4 +285,67 @@ final class ResultScorerTest extends TestCase
         $this->assertStringContainsString('certificate expired', $badReasons);
         $this->assertStringContainsString('clientHold', $badReasons);
     }
+
+    public function testDisabledChecksProduceNoSignal(): void
+    {
+        // A response produced with every network check disabled: null fields
+        // must carry no risk and no trust in either direction.
+        $resp = $this->makeResp([
+            'features' => ['rank' => null],
+            'infrastructure' => ['nameservers_valid' => null, 'mx_records_valid' => null],
+            'domain_info' => null,
+            'analysis' => ['is_hsts_supported' => false],
+            'ssl_info' => null,
+            'tls_info' => null,
+            'content_data' => null,
+        ]);
+
+        $result = ResultScorer::generate($resp);
+        $this->assertSame(0, $result['risk_score']);
+        $this->assertSame(0, $result['trust_score']);
+        $this->assertSame(50, $result['final_score']);
+        $this->assertSame([], $result['reasons']['bad_reasons']);
+    }
+
+    public function testPasswordFormWithoutTlsStillScoresWhenTlsWasChecked(): void
+    {
+        $resp = $this->makeResp([
+            'features' => ['rank' => null],
+            'infrastructure' => ['nameservers_valid' => null, 'mx_records_valid' => null],
+            'domain_info' => null,
+            'analysis' => ['is_hsts_supported' => false],
+            'ssl_info' => ['has_tls' => false, 'is_suspicious' => false, 'reasons' => ['TLS connection failed: timeout']],
+            'tls_info' => ['present' => false, 'hostname_mismatch' => false],
+            'content_data' => [
+                'has_login_form' => true,
+                'has_forms' => true,
+                'forms' => [['is_external' => false, 'has_password' => true]],
+            ],
+        ]);
+
+        $result = ResultScorer::generate($resp);
+        $badReasons = implode(' | ', $result['reasons']['bad_reasons']);
+        $this->assertStringContainsString('Password form detected over insecure connection', $badReasons);
+    }
+
+    public function testPasswordFormIgnoredWhenTlsWasNotChecked(): void
+    {
+        $resp = $this->makeResp([
+            'features' => ['rank' => null],
+            'infrastructure' => ['nameservers_valid' => null, 'mx_records_valid' => null],
+            'domain_info' => null,
+            'analysis' => ['is_hsts_supported' => false],
+            'ssl_info' => null,
+            'tls_info' => null,
+            'content_data' => [
+                'has_login_form' => true,
+                'has_forms' => true,
+                'forms' => [['is_external' => false, 'has_password' => true]],
+            ],
+        ]);
+
+        $result = ResultScorer::generate($resp);
+        $badReasons = implode(' | ', $result['reasons']['bad_reasons']);
+        $this->assertStringNotContainsString('Password form detected over insecure connection', $badReasons);
+    }
 }

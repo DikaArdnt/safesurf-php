@@ -1,6 +1,6 @@
 # Detection Checks
 
-`SafeSurf::analyze()` runs every check below through a timing/error wrapper: a check that throws (network down, timeout, malformed data) is captured into `errors[]` and reported as `incomplete: true` — it never aborts the analysis. Checks that hit the network go through the SSRF-safe `HttpClient` (see [Security](security.md)) and are cached with per-check TTLs.
+`SafeSurf::analyze()` runs every check below through a timing/error wrapper: a check that throws (network down, timeout, malformed data) is captured into `errors[]` and reported as `incomplete: true` — it never aborts the analysis. Checks that hit the network go through the SSRF-safe `HttpClient` (see [Security](security.md)) and are cached with per-check TTLs. Network-backed checks can be turned off individually via the `enable*` flags on `Config` (see [Configuration](configuration.md#feature-toggles)) — a disabled check is skipped and its output field carries `null`/neutral values that the scorer ignores.
 
 Quick overview:
 
