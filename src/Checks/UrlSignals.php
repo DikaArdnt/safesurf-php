@@ -16,7 +16,8 @@ final class UrlSignals
         if ($host === null) {
             return false;
         }
-        return filter_var($host, FILTER_VALIDATE_IP) !== false;
+        $clean = trim($host, '[]');
+        return filter_var($clean, FILTER_VALIDATE_IP) !== false;
     }
 
     public static function containsPunycode(string $url): bool
@@ -76,9 +77,31 @@ final class UrlSignals
         ];
     }
 
-    public static function isUrlShortener(string $domain): bool
+    public static function isUrlShortener(string $domain, ?string $url = null): bool
     {
         $domain = strtolower($domain);
+        if ($url !== null) {
+            $path = parse_url($url, PHP_URL_PATH);
+            $host = DomainUtil::hostFromUrl($url);
+            if (is_string($path) && $host !== null) {
+                $shortLinkPaths = DataFiles::get('short_link_paths') ?? [];
+                for ($d = strtolower($host); $d !== ''; ) {
+                    $prefixes = $shortLinkPaths[$d] ?? null;
+                    if (is_array($prefixes)) {
+                        foreach ($prefixes as $pfx) {
+                            if (is_string($pfx) && str_starts_with($path, $pfx)) {
+                                return true;
+                            }
+                        }
+                    }
+                    $dot = strpos($d, '.');
+                    if ($dot === false) {
+                        break;
+                    }
+                    $d = substr($d, $dot + 1);
+                }
+            }
+        }
         return isset(DataFiles::urlShorteners()[$domain]);
     }
 

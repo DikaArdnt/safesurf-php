@@ -6,13 +6,14 @@ SafeSurf is a scanner: it fetches attacker-influenced URLs and follows redirects
 
 Every check that needs HTTP goes through `SafeSurf\Util\HttpClient::request()`, which enforces, in order:
 
-1. **Scheme whitelist** — only `http` and `https` are ever fetched, no matter what the original input or a redirect claims. Anything else returns `blocked_scheme`.
-2. **DNS resolution first** — the host is resolved to a public IP *before* connecting (`resolveFirstPublicIp()`).
-3. **Private-range rejection** — resolved IPs are checked against private, loopback, link-local (including the cloud metadata endpoint 169.254.169.254), CGNAT, benchmark, multicast, and reserved ranges. IPv6 is checked natively (unique-local, link-local, loopback) **and** in its IPv4-mapped (`::ffff:a.b.c.d`) and IPv4-compatible forms, which are re-validated as the embedded IPv4 address. A literal IP in the URL goes through the same check.
-4. **IP pinning** — the resolved IP is forced onto the connection with `CURLOPT_RESOLVE` (`host:port:ip`). This defeats DNS rebinding: a second, malicious DNS answer between validation and connection cannot redirect the request to an internal host.
-5. **No curl redirects** — `CURLOPT_FOLLOWLOCATION` is always off. Redirects are followed manually by the caller (HTTP check, root-domain correlation): every hop is a fresh request that re-runs validation from step 1.
-6. **Body size cap** — a `CURLOPT_WRITEFUNCTION` accumulates the body and aborts the transfer once `Config::$maxBodyBytes` (default 5 MiB) is exceeded; the partial body is kept and the write-error code (23) is not treated as a transport failure.
-7. **Timeouts** — per-request (`httpTimeoutMs`) and connect (`httpHeaderTimeoutMs`) timeouts bound every request.
+1. **Scheme whitelist & protocol restriction** — only `http` and `https` schemes are accepted. Furthermore, `CURLOPT_PROTOCOLS` is explicitly locked to `CURLPROTO_HTTP | CURLPROTO_HTTPS`, blocking cURL-level fallback to dangerous protocols such as `gopher://`, `file://`, or `phar://`.
+2. **Input sanitization** — `DomainUtil::normalizeUrl()` strips and rejects URLs containing control characters (`\r`, `\n`, `\0`), preventing CRLF header injection and HTTP response splitting.
+3. **DNS resolution first** — the host is resolved to a public IP *before* connecting (`resolveFirstPublicIp()`).
+4. **Private-range rejection** — resolved IPs are checked against private, loopback, link-local (including the cloud metadata endpoint 169.254.169.254), CGNAT, benchmark (RFC 5737/7526), multicast, and reserved ranges. IPv6 is checked natively (unique-local, link-local, loopback) **and** in its IPv4-mapped (`::ffff:a.b.c.d`) and IPv4-compatible forms, which are re-validated as the embedded IPv4 address. A literal IP in the URL goes through the same check.
+5. **IP pinning** — the resolved IP is forced onto the connection with `CURLOPT_RESOLVE` (`host:port:ip`). This defeats DNS rebinding: a second, malicious DNS answer between validation and connection cannot redirect the request to an internal host.
+6. **No curl redirects** — `CURLOPT_FOLLOWLOCATION` is always off. Redirects are followed manually by the caller (HTTP check, root-domain correlation): every hop is a fresh request that re-runs validation from step 1.
+7. **Body size cap** — a `CURLOPT_WRITEFUNCTION` accumulates the body and aborts the transfer once `Config::$maxBodyBytes` (default 5 MiB) is exceeded; the partial body is kept and the write-error code (23) is not treated as a transport failure.
+8. **Timeouts** — per-request (`httpTimeoutMs`) and connect (`httpHeaderTimeoutMs`) timeouts bound every request.
 
 The TLS check (`TlsCombined`) pins its `ssl://` probe to the pre-resolved public IP as well, so certificate inspection cannot be aimed at an internal host either.
 
@@ -28,7 +29,7 @@ Do not add new network calls that bypass these rules: anything fetching user-inf
 
 ## Handling hostile content
 
-- HTML parsing uses `DOMDocument` with `LIBXML_NOERROR | LIBXML_NOWARNING`; malformed markup cannot crash the analysis.
+- HTML parsing uses `DOMDocument` with `LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET`. The `LIBXML_NONET` flag strictly prevents XML External Entity (XXE) attacks, blocking unauthorized local file inclusion or internal network probes via PHP stream wrappers.
 - Body caps (`maxBodyBytes`) and text sampling (~300 words) bound memory use.
 - All check failures are caught by the `timed()` wrapper and become `errors[]` entries; the library never lets a hostile target turn into a fatal error in the caller's process.
 - Results are cached **only** when complete (`incomplete: false`), so poisoned partial results do not stick.

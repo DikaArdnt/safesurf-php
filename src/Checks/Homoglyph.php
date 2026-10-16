@@ -32,7 +32,12 @@ final class Homoglyph
 
         $scripts = [];
         $fullwidth = [];
+        $invisible = [];
         foreach (mb_str_split($decoded) ?: [] as $ch) {
+            $cp = mb_ord($ch, 'UTF-8');
+            if ($cp !== false && self::isInvisibleOrBidi($cp)) {
+                $invisible[] = sprintf('U+%04X', $cp);
+            }
             $script = self::scriptOf($ch);
             if ($script !== null && $script !== 'common') {
                 $scripts[$script] = true;
@@ -44,6 +49,7 @@ final class Homoglyph
 
         $out['scripts'] = array_keys($scripts);
         $out['fullwidth_chars'] = array_values(array_unique($fullwidth));
+        $out['invisible_chars'] = array_values(array_unique($invisible));
 
         $hasLatin = isset($scripts['latin']);
         $spoofScripts = array_values(array_intersect(array_keys($scripts), ['cyrillic', 'greek', 'armenian']));
@@ -57,6 +63,11 @@ final class Homoglyph
         if ($out['fullwidth_chars'] !== []) {
             $out['has_homoglyph'] = true;
             $out['reasons'][] = sprintf('fullwidth lookalike characters (%s)', implode(' ', $out['fullwidth_chars']));
+        }
+
+        if ($out['invisible_chars'] !== []) {
+            $out['has_homoglyph'] = true;
+            $out['reasons'][] = sprintf('invisible or bidi override characters (%s)', implode(' ', $out['invisible_chars']));
         }
 
         return $out;
@@ -138,5 +149,18 @@ final class Homoglyph
     {
         $cp = mb_ord($ch, 'UTF-8');
         return $cp !== false && $cp >= 0xFF01 && $cp <= 0xFF5E;
+    }
+
+    private static function isInvisibleOrBidi(int $cp): bool
+    {
+        return $cp === 0x00AD
+            || $cp === 0x200B
+            || $cp === 0x200C
+            || $cp === 0x200D
+            || $cp === 0x200E
+            || $cp === 0x200F
+            || ($cp >= 0x202A && $cp <= 0x202E)
+            || ($cp >= 0x2066 && $cp <= 0x2069)
+            || $cp === 0xFEFF;
     }
 }

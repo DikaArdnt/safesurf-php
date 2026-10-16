@@ -33,18 +33,18 @@
 | Signal | Weight | Reason example |
 | --- | --- | --- |
 | Rank 1-10,000 | +90 | "Global Giant: Ranked #171 worldwide." |
-| Rank > 50,000 | +50 | "Established website with moderate popularity." |
-| Rank 10,001-50,000 | +20 | "Niche website with standard traffic volume." |
-| Trusted TLD (gov/edu) | +100 | "High-trust official domain extension." |
-| HSTS enabled | +20 | "Enforces strict HTTPS security." |
-| Domain age > 5 years | +15 | "Long-standing domain history." |
-| Domain age 1-5 years | +5 | "Operational for 2 years 3 months." (neutral reason) |
-| Expiry within 90 days | 0 | "Domain expiry within 2 months." (neutral reason) |
-| Expiry 90 days - 1 year | +8 | "Domain expiry within 10 months (moderate coverage)." |
-| Expiry 1-5 years | +15 | "Domain expiry is well-established." |
+| Rank 10,001-50,000 | +50 | "Well-known website (#23450 worldwide)." |
+| Rank 50,001-1,000,000 | +20 | "Low-traffic but indexed website (#120300 worldwide)." |
+| Trusted TLD (gov/edu) | +100 | "High-trust official domain extension (Gov/Edu)." |
+| HSTS enabled | +20 | "Enforces strict HTTPS security (HSTS Enabled)." |
+| Domain age > 5 years | +25 | "Long-standing domain history (10 years)." |
+| Domain age 3-5 years | +15 | "Operational for 4 years." |
+| Domain age 1-3 years | +10 | "Operational for 2 years." |
 | Expiry > 5 years | +25 | "Domain expiry is long-term secured." |
-| DNSSEC enabled | +10 | "Advanced DNS security enabled." |
-| Verified brand match on page | +20 | "Verified brand matching: paypal." |
+| Expiry 1-5 years | +15 | "Domain expiry is well-established." |
+| Expiry 90 days - 1 year | +8 | "Domain expiry within 10 months (moderate coverage)." |
+| DNSSEC enabled | +10 | "Advanced DNS security enabled (DNSSEC)." |
+| Verified brand match on page | +20 | "Verified brand matching: GitHub" |
 
 ## Risk weights
 
@@ -53,15 +53,16 @@
 | Signal | Weight |
 | --- | --- |
 | Raw IP address in URL | +100 |
+| Wildcard IP hostname service (`nip.io`, `sslip.io`, `traefik.me`) | +100 |
 | Punycode/non-ASCII host | +100 |
-| Homoglyph (mixed script / fullwidth) | +60 |
-| URL shortener | +25 |
+| Homoglyph (mixed script / fullwidth lookalikes) | +60 |
+| URL shortener (redirecting to unranked destination) | +25 |
 | Excessively deep path (> 5 segments) | +30 |
 | URL longer than 75 characters | +20 |
 | More than 2 subdomain labels | +15 |
 | Security keywords in URL | +10 |
 | Unranked domain (non-hosting-platform) | +10 |
-| Risky TLD | +20 |
+| Risky TLD (on unranked / non-trusted domains) | +20 |
 | Non-ICANN, non-hosting suffix | +30 |
 | NS records missing/invalid (non-hosting) | +10 |
 | No MX records | +5 (neutral reason) |
@@ -71,9 +72,7 @@
 | Signal | Weight |
 | --- | --- |
 | Domain <= 30 days old | +25 |
-| Domain <= 1 year old | +15 |
-| Young domain (<= 1 y) expiring within 1 year | +20 |
-| Expiry within 30 days | +15 |
+| Domain <= 90 days old | +15 |
 | Registry status hold / pendingDelete / redemptionPeriod | +25 |
 
 ### HTTP & TLS
@@ -81,34 +80,57 @@
 | Signal | Weight |
 | --- | --- |
 | Redirect chain longer than 3 hops | +40 |
-| Cross-domain redirect (domain jump) | +50 |
+| Cross-domain redirect (destination differs and is unvouched) | +50 |
 | TLS certificate suspicious (expired, not yet valid, > 398-day validity, no CT log, blacklisted fingerprint) | +20 |
 | TLS hostname mismatch | +25 |
 
-### Page content
+### Page content & malware patterns
 
 | Signal | Weight |
 | --- | --- |
-| Login form on a domain that is neither established (rank > 10k) nor older than 1 year | +50 |
+| Login form on a domain that is neither established nor older than 1 year | +50 |
+| Fake crypto trading platform title template | +50 |
+| Mail sign-in page hosted on free website builder / platform | +30 |
 | Payment fields (card, CVV, …) | +30 |
 | Hidden iframe | +40 |
-| Form submits to a different domain | +80 |
+| Form submits off-domain (non-marketing) with password/payment/personal data | +80 |
+| Form submits email/username off-domain | +20 |
 | Password form over plain HTTP (no TLS) | +200 |
 | Brand mismatch (mentions brand X, hosted elsewhere) | +100 |
 | Login form + brand names in text on an unofficial domain | +30 |
-| Favicon hotlinked from a brand's official domain (with login/brand-mismatch context) | +20 |
+| Favicon hotlinked from a brand's official domain (with login/brand-mismatch) | +20 |
 | Meta-refresh redirect off-domain | +10 |
+| Script redirect sending visitors to raw IP or from user upload host | +60 (+30 if general cross-domain) |
+| Provider block (Cloudflare / host takedown for phishing/malware) | +100 (+40 for generic takedown) |
+| WordPress system page (`/wp-content/`, etc.) with planted login | +30 (+30 if login form) |
+| Victim email address in query or hash fragment | +20 |
+| Downloaded program on user upload host (e.g. GitHub releases, cloud storage) | Cap at Suspicious |
 | JS injects credential form (with login form present) | +20 |
 | Heavily obfuscated JS (`eval(atob())` or score >= 0.4) | +10 |
 | Crypto wallet API hooks | +15 |
 
-### Typosquatting & subdomain brand abuse
+### Typosquatting & URL parts forensics
 
 | Signal | Weight |
 | --- | --- |
-| Typosquatting (distance 1-2 from a top-5000 domain) | +40 |
-| Combo-squatting (brand SLD inside SLD) | +20 |
+| Embedded domain (`login.paypal.com.attacker.com`) | +60 |
+| Typosquatting (Levenshtein distance 1-2 from a top-5000 domain) | +40 |
+| Combo-squatting on non-generic brands (`paypal-security.com`) | +20 (+40 on hosting platform) |
+| Subdomain brand impersonation (`paypal.attacker.com`) | +20 to +40 |
+| Path brand impersonation on unranked domain (`attacker.com/paypal/login`) | +20 (+40 if login form) |
 | Brand token embedded in subdomain of an unofficial domain | +15 (+10 on hosting platforms) |
+
+## False-positive suppression engine (`applyExceptions`)
+
+Before generating final scores, the analyzer applies contextual exemptions to eliminate false alarms:
+1. **Top-ranked domain exemptions**: Sites in the Top-1M or on trusted TLDs (.gov/.edu) are exempt from risky TLD, URL length/depth, and URL keyword penalties.
+2. **Shortener bare URLs**: A bare shortener URL (`https://bit.ly/`) is its homepage, not a masked destination.
+3. **Provider endpoints**: The bare address of cloud storage (`https://storage.googleapis.com/`) inherits the owning provider's rank.
+4. **Legitimate domain jumps**: Redirects between domains owned by the same brand (`wa.me` -> `api.whatsapp.com`, Blogger ccTLDs, Google domains) or pointing to vouched/ranked destinations do not trigger domain jump penalties.
+5. **Marketing forms**: External form submissions pointing to established marketing platforms (Mailchimp, HubSpot, Klaviyo, Brevo, ConvertKit) are exempted unless they collect passwords or payment data.
+6. **Brand title context**: `Brand::withoutOwnAddress()` removes the site's own host from its title so that default hostnames like `octocat.github.io` do not claim the provider's brand.
+
+
 
 ### Threat feeds
 

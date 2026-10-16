@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SafeSurf\Checks;
 
 use SafeSurf\Config;
+use SafeSurf\Constants\DataFiles;
 use SafeSurf\Util\DomainUtil;
 use SafeSurf\Util\HttpClient;
 
@@ -22,8 +23,10 @@ final class Content
         }
 
         $body = (string) ($resp['body'] ?? '');
+        $status = (int) ($resp['status'] ?? 200);
+        $headers = is_array($resp['headers'] ?? null) ? $resp['headers'] : [];
 
-        $out = self::analyzeHtml($body, $pageUrl, $config);
+        $out = self::analyzeHtml($body, $pageUrl, $config, $status, $headers);
         if (is_array($out)) {
             $out['fetch_duration'] = (int) round((microtime(true) - $start) * 1_000_000_000);
         }
@@ -31,7 +34,7 @@ final class Content
         return $out;
     }
 
-    public static function analyzeHtml(string $body, string $pageUrl, Config $config): ?array
+    public static function analyzeHtml(string $body, string $pageUrl, Config $config, int $status = 200, array $headers = []): ?array
     {
         if ($body === '') {
             return null;
@@ -44,7 +47,7 @@ final class Content
 
         $doc = new \DOMDocument();
         $prev = libxml_use_internal_errors(true);
-        $ok = $doc->loadHTML($body, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $ok = $doc->loadHTML($body, LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
         if ($ok === false) {
@@ -116,7 +119,7 @@ final class Content
             if (!is_array($f)) {
                 continue;
             }
-            if (!empty($f['has_password']) || !empty($f['has_user_like'])) {
+            if (!empty($f['has_password']) || (!empty($f['has_user_like']) && !empty($f['login_intent']))) {
                 $hasLogin = true;
             }
             if (!empty($f['has_payment'])) {
@@ -132,6 +135,16 @@ final class Content
         $metaRefresh = self::analyzeMetaRefresh($doc, $pageUrl, $pageHost, $config);
         $textSample = self::extractTextSample($xp);
         $jsSignals = JsSignals::analyzeHtml($body);
+
+        $scripts = [];
+        $scriptNodes = $xp->query('//script');
+        if ($scriptNodes !== false) {
+            foreach ($scriptNodes as $sNode) {
+                if ($sNode instanceof \DOMElement && !$sNode->hasAttribute('src')) {
+                    $scripts[] = $sNode->textContent;
+                }
+            }
+        }
 
         $brandCheck = Brand::checkMismatch($pageHost, $title);
         $brandsInText = Brand::namesInText($textSample);
@@ -152,6 +165,17 @@ final class Content
 
         $loginWithBrandText = $hasLogin && $nonOfficialBrandText !== [];
 
+        $scriptRedirect = self::detectScriptRedirect($scripts, !empty($metaRefresh['target']) ? (string) $metaRefresh['target'] : null, $pageHost, strlen($textSample), $config);
+        $providerBlock = self::detectProviderBlock($status, $title, $headers);
+
+        $contentType = null;
+        if (!empty($headers['content-type'])) {
+            $ct = is_array($headers['content-type']) ? (string) $headers['content-type'][0] : (string) $headers['content-type'];
+            $contentType = trim(explode(';', $ct)[0]);
+        }
+
+        $fileName = self::extractFileName($pageUrl, $headers);
+
         return [
             'url' => $pageUrl,
             'title' => $title,
@@ -168,6 +192,10 @@ final class Content
             'brand_check' => $brandCheck,
             'text_sample' => $textSample,
             'favicon' => $favicon,
+            'content_type' => $contentType,
+            'file_name' => $fileName,
+            'script_redirect' => $scriptRedirect,
+            'provider_block' => $providerBlock,
             'phishing_patterns' => [
                 'favicon_external' => !empty($favicon['is_external']),
                 'favicon_brand_mismatch' => $faviconBrandMismatch,
@@ -178,8 +206,163 @@ final class Content
                 'brand_names_in_text' => $nonOfficialBrandText,
                 'login_with_brand_text' => $loginWithBrandText,
                 'js_signals' => $jsSignals,
+                'script_redirect' => $scriptRedirect,
+                'provider_block' => $providerBlock,
             ],
         ];
+    }
+
+    private static function extractFileName(string $pageUrl, array $headers): ?string
+    {
+        if (!empty($headers['content-disposition'])) {
+            $cd = is_array($headers['content-disposition']) ? implode(';', $headers['content-disposition']) : (string) $headers['content-disposition'];
+            if (preg_match('/filename\*?=(?:UTF-8\'\')?["\']?([^";\r\n]+)["\']?/i', $cd, $m)) {
+                return trim($m[1]);
+            }
+        }
+        $path = (string) (parse_url($pageUrl, PHP_URL_PATH) ?? '');
+        $base = basename($path);
+        if ($base !== '' && $base !== '/' && str_contains($base, '.')) {
+            return $base;
+        }
+        return null;
+    }
+
+    public static function detectProviderBlock(int $statusCode, string $title, array $headers): ?array
+    {
+        if (preg_match('/^suspected\s+(phishing|malware)\s*\|\s*cloudflare$/i', trim($title), $m)) {
+            return ['provider' => 'Cloudflare', 'reason' => strtolower($m[1])];
+        }
+        if ($statusCode === 451) {
+            $server = '';
+            foreach ($headers['server'] ?? [] as $s) {
+                $server .= ' ' . $s;
+            }
+            $provider = str_contains(strtolower($server), 'vercel') ? 'Vercel' : 'The hosting provider';
+            return ['provider' => $provider, 'reason' => 'blocked'];
+        }
+        return null;
+    }
+
+    public static function detectScriptRedirect(array $scripts, ?string $metaRefreshTarget, string $pageHost, int $visibleTextLen, Config $config): ?array
+    {
+        $found = null;
+        $thinPage = $visibleTextLen < 200;
+
+        $consider = function (string $target, bool $fromScript) use (&$found, $pageHost, $thinPage, $config): void {
+            $target = trim($target);
+            if ($target === '') {
+                return;
+            }
+            $parts = @parse_url($target);
+            if (!is_array($parts) || empty($parts['host'])) {
+                return;
+            }
+            $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+            if ($scheme !== 'http' && $scheme !== 'https' && $scheme !== '') {
+                return;
+            }
+            $host = strtolower((string) $parts['host']);
+            $toIp = filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false && !HttpClient::isPrivateIp($host);
+            $crossDomain = !self::sameHost($host, $pageHost, $config);
+
+            if (!$toIp && (!$crossDomain || ($fromScript && !$thinPage))) {
+                return;
+            }
+            $r = ['target' => $target, 'to_ip' => $toIp, 'cross_domain' => $crossDomain];
+            if ($found === null || ($toIp && empty($found['to_ip']))) {
+                $found = $r;
+            }
+        };
+
+        if ($metaRefreshTarget !== null && $metaRefreshTarget !== '') {
+            $consider($metaRefreshTarget, false);
+        }
+
+        foreach ($scripts as $js) {
+            if (!preg_match('/location(?:\.href)?\s*=[^=]|location\.(?:replace|assign)\s*\(/i', $js)) {
+                continue;
+            }
+            if (preg_match_all('/location(?:\.href)?\s*=\s*["\']([^"\']+)["\']|location\.(?:replace|assign)\s*\(\s*["\']([^"\']+)["\']/i', $js, $m, PREG_SET_ORDER)) {
+                foreach ($m as $match) {
+                    $tgt = $match[1] !== '' ? $match[1] : ($match[2] ?? '');
+                    $consider($tgt, true);
+                }
+            }
+            if ($found !== null && !empty($found['to_ip'])) {
+                continue;
+            }
+            if (preg_match_all('/["\'\/](\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?["\'\/:?]/', $js, $ipMatches)) {
+                foreach ($ipMatches[1] as $rawIp) {
+                    if (filter_var($rawIp, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false && !HttpClient::isPrivateIp($rawIp)) {
+                        $found = ['target' => $rawIp, 'to_ip' => true, 'cross_domain' => true];
+                        break;
+                    }
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    public static function executableExt(string $nameOrUrl): ?string
+    {
+        $path = (string) (parse_url($nameOrUrl, PHP_URL_PATH) ?? $nameOrUrl);
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        if ($ext === '') {
+            return null;
+        }
+        $ext = ".$ext";
+        $execExts = [
+            '.exe' => true, '.msi' => true, '.scr' => true, '.bat' => true, '.cmd' => true, '.pif' => true,
+            '.vbs' => true, '.jse' => true, '.wsf' => true, '.ps1' => true, '.hta' => true, '.jar' => true,
+            '.apk' => true, '.xapk' => true, '.dmg' => true, '.pkg' => true, '.deb' => true, '.rpm' => true,
+            '.appimage' => true, '.lnk' => true, '.iso' => true,
+        ];
+        return isset($execExts[$ext]) ? $ext : null;
+    }
+
+    public static function isMarketingFormService(string $action): bool
+    {
+        $host = DomainUtil::hostFromUrl($action);
+        if ($host === null || $host === '') {
+            return false;
+        }
+        $hosts = DataFiles::marketingFormHosts();
+        for ($d = $host; $d !== ''; ) {
+            if (isset($hosts[$d])) {
+                return true;
+            }
+            $dot = strpos($d, '.');
+            if ($dot === false) {
+                break;
+            }
+            $d = substr($d, $dot + 1);
+        }
+        return false;
+    }
+
+    public static function asksPersonal(string $s): bool
+    {
+        $words = preg_split('/[^A-Za-z0-9]+/', $s) ?: [];
+        $personalWords = [
+            'address' => true, 'street' => true, 'phone' => true, 'telephone' => true, 'mobile' => true,
+            'ssn' => true, 'dob' => true, 'birth' => true, 'birthday' => true, 'birthdate' => true,
+            'city' => true, 'zip' => true, 'zipcode' => true, 'postal' => true, 'postcode' => true, 'state' => true,
+        ];
+        $addressOf = ['email' => true, 'e' => true, 'mail' => true, 'ip' => true, 'web' => true, 'wallet' => true];
+
+        foreach ($words as $i => $w) {
+            $wLower = strtolower($w);
+            if (!isset($personalWords[$wLower])) {
+                continue;
+            }
+            if ($wLower === 'address' && $i > 0 && isset($addressOf[strtolower((string) ($words[$i - 1] ?? ''))])) {
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     private static function analyzeFavicon(\DOMXPath $xp, string $pageUrl, string $pageHost, Config $config): array
@@ -235,7 +418,7 @@ final class Content
 
     private static function brandOfficialHost(string $host): ?string
     {
-        foreach (\SafeSurf\Constants\DataFiles::brands() as $entry) {
+        foreach (DataFiles::brands() as $entry) {
             if (!is_array($entry)) {
                 continue;
             }
@@ -298,33 +481,35 @@ final class Content
             'is_external' => false,
         ];
 
-        $metas = $doc->getElementsByTagName('meta');
-        if ($metas === false || $metas->length === 0) {
+        $xp = new \DOMXPath($doc);
+        $nodes = $xp->query('//meta[translate(@http-equiv, "REFSH", "refsh") = "refresh"]');
+        if ($nodes === false || $nodes->length === 0) {
             return $out;
         }
 
-        foreach ($metas as $meta) {
-            if (!$meta instanceof \DOMElement) {
-                continue;
+        $meta = $nodes->item(0);
+        if (!$meta instanceof \DOMElement) {
+            return $out;
+        }
+
+        $content = trim($meta->getAttribute('content'));
+        if ($content === '') {
+            return $out;
+        }
+
+        $out['present'] = true;
+        if (preg_match('/^(\d+)/', $content, $m)) {
+            $out['delay_seconds'] = (int) $m[1];
+        }
+
+        if (preg_match('/url\s*=\s*[\'"]?([^\'";\s]+)/i', $content, $m)) {
+            $target = trim($m[1]);
+            $abs = self::absoluteUrl($pageUrl, $target);
+            $out['target'] = $abs;
+            $targetHost = DomainUtil::hostFromUrl($abs) ?? '';
+            if ($targetHost !== '' && $pageHost !== '') {
+                $out['is_external'] = !self::sameHost($targetHost, $pageHost, $config);
             }
-            if (strtolower(trim($meta->getAttribute('http-equiv'))) !== 'refresh') {
-                continue;
-            }
-            $content = trim($meta->getAttribute('content'));
-            if ($content === '') {
-                continue;
-            }
-            $out['present'] = true;
-            if (preg_match('/^\s*(\d+)\s*;/i', $content, $m)) {
-                $out['delay_seconds'] = (int) $m[1];
-            }
-            if (preg_match('/url\s*=\s*[\'"]?([^\'";]+)/i', $content, $m)) {
-                $target = trim($m[1]);
-                $out['target'] = $target;
-                $host = DomainUtil::hostFromUrl(self::absoluteUrl($pageUrl, $target)) ?? '';
-                $out['is_external'] = $host !== '' && $pageHost !== '' && !self::sameHost($host, $pageHost, $config);
-            }
-            break;
         }
 
         return $out;
@@ -333,32 +518,31 @@ final class Content
     private static function extractTextSample(\DOMXPath $xp): string
     {
         $body = $xp->query('//body')->item(0);
-        if (!$body instanceof \DOMNode) {
+        if (!$body instanceof \DOMElement) {
             return '';
         }
 
         $clone = $body->cloneNode(true);
-        $remove = $xp->query('.//script | .//style | .//noscript', $clone);
-        if ($remove !== false && $remove->length > 0) {
-            foreach (iterator_to_array($remove) as $n) {
-                if ($n->parentNode !== null) {
-                    $n->parentNode->removeChild($n);
+        $xpClone = new \DOMXPath($clone->ownerDocument ?? new \DOMDocument());
+        $drop = $xpClone->query('.//script | .//style | .//noscript', $clone);
+        if ($drop !== false) {
+            foreach ($drop as $d) {
+                if ($d instanceof \DOMNode && $d->parentNode !== null) {
+                    $d->parentNode->removeChild($d);
                 }
             }
         }
 
-        $text = preg_replace('/\s+/u', ' ', trim($clone->textContent)) ?? '';
-        $words = preg_split('/ /u', $text) ?: [];
-        if (count($words) > self::MAX_TEXT_SAMPLE_WORDS) {
-            $words = array_slice($words, 0, self::MAX_TEXT_SAMPLE_WORDS);
-        }
-        return implode(' ', $words);
+        $text = (string) $clone->textContent;
+        $words = preg_split('/\s+/u', trim($text)) ?: [];
+        $slice = array_slice($words, 0, self::MAX_TEXT_SAMPLE_WORDS);
+        return implode(' ', $slice);
     }
 
     private static function absoluteUrl(string $baseUrl, string $raw): string
     {
         $raw = trim($raw);
-        if ($raw === '') {
+        if ($raw === '' || $raw === '#') {
             return $baseUrl;
         }
         if (preg_match('#^https?://#i', $raw)) {
@@ -429,10 +613,16 @@ final class Content
             'has_user_like' => false,
             'has_payment' => false,
             'has_personal' => false,
+            'login_intent' => false,
+            'is_marketing' => self::isMarketingFormService($action),
             'submit_texts' => [],
             'is_external' => $external,
             'is_hidden' => self::isHiddenElement($form, $style, $w, $h),
         ];
+
+        if (preg_match('/(?:login|signin|auth)/i', $action)) {
+            $info['login_intent'] = true;
+        }
 
         $nodes = $form->getElementsByTagName('*');
         foreach ($nodes as $n) {
@@ -447,29 +637,45 @@ final class Content
                 $placeholder = trim($n->getAttribute('placeholder'));
                 $aria = trim($n->getAttribute('aria-label'));
                 $id = trim($n->getAttribute('id'));
+                $auto = strtolower(trim($n->getAttribute('autocomplete')));
+                $inputmode = strtolower(trim($n->getAttribute('inputmode')));
 
                 $info['inputs'][] = self::fmtInputSummary($type, $name, $placeholder, $aria, $id);
 
-                $hay = strtolower("$name $id $placeholder $aria");
+                if ($type === 'submit' || $type === 'button') {
+                    $v = trim($n->getAttribute('value'));
+                    if ($v !== '') {
+                        $info['submit_texts'][] = $v;
+                        if (self::looksLikeLoginText($v)) {
+                            $info['login_intent'] = true;
+                        }
+                    }
+                }
 
-                if ($type === 'password' || str_contains($hay, 'pass')) {
+                $hay = strtolower("$name $id $placeholder $aria $auto $inputmode");
+
+                if ($type === 'password' || str_contains($hay, 'pass') || str_contains($auto, 'password') || str_contains($hay, 'pin') || str_contains($hay, 'secret')) {
                     $info['has_password'] = true;
                 }
 
-                if ($type === 'email' || str_contains($hay, 'user') || str_contains($hay, 'login') || str_contains($hay, 'email')) {
+                if ($type === 'email' || str_contains($hay, 'user') || str_contains($hay, 'login') || str_contains($hay, 'email') || str_contains($auto, 'username') || str_contains($auto, 'email')) {
                     $info['has_user_like'] = true;
                 }
 
                 if (
-                    str_contains($hay, 'card') || str_contains($hay, 'cvv') || str_contains($hay, 'expiry') || str_contains($hay, 'credit') ||
-                    str_contains($hay, 'money') || str_contains($hay, 'pay') || str_contains($hay, 'billing') || str_contains($hay, 'checkout') || str_contains($hay, 'payment')
+                    str_contains($hay, 'card') || str_contains($hay, 'cvv') || str_contains($hay, 'cvc') || str_contains($hay, 'expiry') || str_contains($hay, 'credit') ||
+                    str_contains($hay, 'money') || str_contains($hay, 'pay') || str_contains($hay, 'billing') || str_contains($hay, 'checkout') || str_contains($hay, 'payment') ||
+                    str_contains($auto, 'cc-') || str_contains($hay, 'cardnumber')
                 ) {
                     $info['has_payment'] = true;
                 }
 
                 if (
-                    str_contains($hay, 'address') || str_contains($hay, 'phone') || str_contains($hay, 'ssn') || str_contains($hay, 'dob') ||
-                    str_contains($hay, 'birth') || str_contains($hay, 'city') || str_contains($hay, 'zip') || str_contains($hay, 'state')
+                    $type === 'tel' ||
+                    self::asksPersonal($name) ||
+                    self::asksPersonal($id) ||
+                    self::asksPersonal($placeholder) ||
+                    str_contains($auto, 'postal-code') || str_contains($auto, 'street-address') || str_contains($auto, 'tel')
                 ) {
                     $info['has_personal'] = true;
                 }
@@ -482,7 +688,7 @@ final class Content
                     if ($tag === 'button' || $tag === 'a') {
                         $info['submit_texts'][] = $txt;
                         if (self::looksLikeLoginText($l)) {
-                            $info['has_user_like'] = true;
+                            $info['login_intent'] = true;
                         }
                         if (str_contains($l, 'pay') || str_contains($l, 'buy') || str_contains($l, 'checkout') || str_contains($l, 'order')) {
                             $info['has_payment'] = true;
@@ -492,24 +698,20 @@ final class Content
                         if (str_contains($l, 'password')) {
                             $info['has_password'] = true;
                         }
-                        if (str_contains($l, 'username') || str_contains($l, 'email') || str_contains($l, 'sign in')) {
+                        if (str_contains($l, 'username') || str_contains($l, 'email')) {
                             $info['has_user_like'] = true;
+                        }
+                        if (str_contains($l, 'sign in') || str_contains($l, 'login')) {
+                            $info['login_intent'] = true;
                         }
                         if (str_contains($l, 'card') || str_contains($l, 'cvv') || str_contains($l, 'expiry') || str_contains($l, 'credit')) {
                             $info['has_payment'] = true;
                         }
-                        if (str_contains($l, 'address') || str_contains($l, 'phone') || str_contains($l, 'zip')) {
+                        if (self::asksPersonal($l)) {
                             $info['has_personal'] = true;
                         }
                     }
                 }
-            }
-        }
-
-        if (!$info['has_user_like']) {
-            $a = strtolower($info['action']);
-            if (str_contains($a, 'login') || str_contains($a, 'signin') || str_contains($a, 'auth')) {
-                $info['has_user_like'] = true;
             }
         }
 
@@ -553,7 +755,7 @@ final class Content
             return "$scheme:$raw";
         }
         if (str_starts_with($raw, '/')) {
-            return "$scheme://$host$port/$raw";
+            return "$scheme://$host$port$raw";
         }
 
         $path = (string) ($base['path'] ?? '/');
@@ -582,10 +784,10 @@ final class Content
         return implode('|', $parts);
     }
 
-    private static function looksLikeLoginText(string $s): bool
+    public static function looksLikeLoginText(string $s): bool
     {
         $s = strtolower(trim($s));
-        $keywords = ['login', 'log in', 'sign in', 'signin', 'submit', 'sign-on', 'signon', 'sign up', 'signup'];
+        $keywords = ['login', 'log in', 'sign in', 'signin', 'sign-on', 'signon', 'next', 'continue', 'verify'];
         foreach ($keywords as $k) {
             if (str_contains($s, $k)) {
                 return true;

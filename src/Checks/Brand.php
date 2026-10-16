@@ -11,10 +11,11 @@ final class Brand
     public static function checkMismatch(string $domain, string $pageTitle): array
     {
         $domain = strtolower($domain);
-        $pageTitle = strtolower($pageTitle);
+        $pageTitle = self::withoutOwnAddress(strtolower($pageTitle), $domain);
 
         $res = [
             'brand_found' => '',
+            'official_domain' => '',
             'is_mismatch' => false,
             'detected_names' => [],
         ];
@@ -36,6 +37,9 @@ final class Brand
                     if (!self::isOfficialDomain($domain, $official)) {
                         $res['brand_found'] = $brandName;
                         $res['is_mismatch'] = true;
+                        if (!empty($official[0]) && is_string($official[0])) {
+                            $res['official_domain'] = $official[0];
+                        }
                     }
                     break;
                 }
@@ -93,6 +97,16 @@ final class Brand
             fn($d) => is_string($d) ? strtolower($d) : '',
             $official
         ));
+    }
+
+    private static function withoutOwnAddress(string $title, string $host): string
+    {
+        $host = preg_replace('/^www\./i', '', $host) ?? $host;
+        if ($host === '') {
+            return $title;
+        }
+        $title = str_ireplace('www.' . $host, ' ', $title);
+        return str_ireplace($host, ' ', $title);
     }
 
     private static function isOfficialDomain(string $domain, array $officialDomains): bool

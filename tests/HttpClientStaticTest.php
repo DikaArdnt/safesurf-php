@@ -33,6 +33,28 @@ final class HttpClientStaticTest extends TestCase
         $this->assertFalse(HttpClient::isPrivateIp('::ffff:8.8.8.8'));
     }
 
+    public function testIpv4CompatibleAndSpecialIpv6TreatedAsPrivate(): void
+    {
+        $this->assertTrue(HttpClient::isPrivateIp('::127.0.0.1'));
+        $this->assertTrue(HttpClient::isPrivateIp('::169.254.169.254'));
+        $this->assertTrue(HttpClient::isPrivateIp('::10.0.0.1'));
+        $this->assertTrue(HttpClient::isPrivateIp('::'));
+        $this->assertTrue(HttpClient::isPrivateIp('ff02::1'));
+        $this->assertTrue(HttpClient::isPrivateIp('192.0.2.1'));
+        $this->assertTrue(HttpClient::isPrivateIp('198.51.100.1'));
+        $this->assertTrue(HttpClient::isPrivateIp('203.0.113.1'));
+    }
+
+    public function testLiteralIpv6HostSsrfBlocked(): void
+    {
+        $config = new Config();
+        $res1 = HttpClient::request('GET', 'http://[::1]/', $config);
+        $this->assertSame('ssrf_blocked', $res1['error']);
+
+        $res2 = HttpClient::request('GET', 'http://[::127.0.0.1]/', $config);
+        $this->assertSame('ssrf_blocked', $res2['error']);
+    }
+
     public function testNonHttpSchemesBlocked(): void
     {
         $config = new Config();

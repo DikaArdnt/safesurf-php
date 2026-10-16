@@ -57,8 +57,9 @@ final class TlsCombined
             ],
         ]);
 
+        $targetHost = str_contains($pinnedIp, ':') ? "[$pinnedIp]" : $pinnedIp;
         $fp = @stream_socket_client(
-            "ssl://$pinnedIp:443",
+            "ssl://$targetHost:443",
             $errno,
             $errstr,
             5.0,
@@ -184,8 +185,9 @@ final class TlsCombined
             ],
         ]);
 
+        $targetHost = str_contains($pinnedIp, ':') ? "[$pinnedIp]" : $pinnedIp;
         $fp = @stream_socket_client(
-            "ssl://$pinnedIp:443",
+            "ssl://$targetHost:443",
             $errno,
             $errstr,
             5.0,

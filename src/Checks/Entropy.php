@@ -124,8 +124,17 @@ final class Entropy
         $domain = preg_split('/[\\/?#]/', $domain)[0] ?? $domain;
         $domain = explode(':', $domain)[0] ?? $domain;
         $parts = explode('.', $domain);
-        if (count($parts) >= 2) {
-            return $parts[count($parts) - 2];
+        $n = count($parts);
+        if ($n >= 3) {
+            $last = $parts[$n - 1];
+            $prev = $parts[$n - 2];
+            if (strlen($last) <= 3 && (strlen($prev) <= 3 || in_array($prev, ['co', 'com', 'org', 'net', 'edu', 'gov', 'ac'], true))) {
+                return $parts[$n - 3];
+            }
+            return $parts[$n - 2];
+        }
+        if ($n === 2) {
+            return $parts[0];
         }
         return implode('', $parts);
     }

@@ -10,17 +10,18 @@ SafeSurf for PHP focuses on transparent analysis results (reasons), scores, and 
 
 ## Features
 
-- **URL signals**: known shorteners, raw-IP hosts, punycode, excessive length or depth, subdomain count, phishing keywords
-- **Domain & DNS signals**: global traffic rank (top-1M), IP resolution, NS/MX validity, trusted/risky/hosting-platform TLD classification via the Public Suffix List
-- **Registration data**: RDAP (WHOIS fallback) for domain age, expiry, registry status, and DNSSEC
+- **URL signals**: known shorteners (with path and bare-URL exceptions), raw-IP hosts and wildcard IP hostname services (`nip.io`, `sslip.io`, `traefik.me`), punycode, excessive length or depth, subdomain count, phishing keywords
+- **Domain & DNS signals**: global traffic rank (top-1M Tranco), IP resolution, NS/MX validity, trusted/risky/hosting-platform TLD classification via the Public Suffix List and Customer Site Platform routing
+- **Registration data**: RDAP (WHOIS fallback) for domain age, expiry, registry status, and DNSSEC, with isolation for website builders (Weebly, Blogger ccTLDs, etc.)
 - **Subdomain analysis**: sensitive labels (`login.`, `secure.`, `verify.`, ...), brand-name impersonation in subdomains, and root-domain vs subdomain correlation (parked root, off-domain redirect, content similarity, infrastructure split)
 - **Homoglyph / IDN spoofing**: punycode decoding, mixed-script (Latin + Cyrillic/Greek/Armenian) and fullwidth lookalike detection, without flagging legitimate single-script IDNs
-- **Typosquatting**: Levenshtein distance 1-2 and combo-squatting against the top-5000 domains
+- **Typosquatting & Combo-squatting**: Levenshtein distance 1-2, combo-squatting with generic brand exclusions (`genericBrandNames`), and URL parts forensics (`embedded_domain`, `subdomain_brand`, `path_brand`)
 - **Domain randomness**: entropy and DGA heuristics for the domain label
 - **TLS/SSL inspection**: issuer, certificate age, Certificate Transparency, chain validation, hostname match (probe pinned to a pre-resolved IP)
-- **HTTP analysis**: manual per-hop redirect chain, final status, HSTS, cross-domain jump detection
-- **Page content analysis**: login/payment/personal forms, forms submitting off-domain, hidden iframes, brand mismatch, favicon/meta-refresh/external-asset patterns, obfuscated or injected JavaScript, crypto-wallet hooks
+- **HTTP analysis**: manual per-hop redirect chain, final status, HSTS, cross-domain jump detection (with vouched destination and same-brand exemptions)
+- **Page content analysis**: multi-step login intent analysis (`looksLikeLoginText`), payment/personal forms, off-domain forms with safe marketing service exemptions (Mailchimp, HubSpot, Klaviyo), hidden iframes, brand mismatch with `withoutOwnAddress()`, favicon/meta-refresh/external-asset patterns, obfuscated or injected JavaScript, crypto-wallet hooks, and provider block detection
 - **Threat feeds**: PhishTank (optional API key) and external plugin feeds; each feed's PHPDoc is injected into the result as its description and category
+- **False-positive suppression**: comprehensive exception engine (`applyExceptions`) aligning scores and UI flags for top-ranked domains, established redirect targets, and provider endpoints
 - **Transparent scoring**: risk/trust/final scores (0-100) with plain-English reasons for every signal
 - **Caching**: optional per-check TTL caching via phpfastcache, or any adapter implementing `SafeSurf\Cache\CacheInterface`
 
@@ -36,8 +37,9 @@ Full documentation lives in [`docs/`](./docs):
 | [Scoring & Verdicts](./docs/scoring.md)        | How the scores and the Safe/Suspicious/Risky verdict are computed |
 | [Output Reference](./docs/output-reference.md) | The complete result structure, field by field, with real examples |
 | [Threat Feeds](./docs/threat-feeds.md)         | Built-in feeds and the plugin system (PHPDoc injection)           |
-| [Security](./docs/security.md)                 | SSRF-safe fetching, IP pinning, body limits                       |
+| [Security](./docs/security.md)                 | SSRF-safe fetching, XXE protection, IP pinning, body limits       |
 | [Extending](./docs/extending.md)               | Adding feeds, data, checks, and tests                             |
+| [Changelog](./CHANGELOG.md)                    | Complete release history and changes across versions              |
 
 ## System Requirements
 
@@ -143,10 +145,12 @@ Severity mapping in the risk score: `phishing`/`malware` = 70, `blocked` = 25, `
 
 ## Security & Operational Notes
 
-- **SSRF protection**: every HTTP fetch resolves DNS first, rejects private/loopback/link-local/metadata IPs (including IPv4-mapped IPv6), pins the connection to the validated IP (`CURLOPT_RESOLVE`), never lets curl follow redirects (each hop is re-validated), and caps the download size. Details: [Security](./docs/security.md).
+- **SSRF & Remote Exploitation Protection**: Every HTTP fetch resolves DNS first, rejects private/loopback/link-local/metadata IPs (including IPv4-mapped and IPv4-compatible IPv6), pins the connection to the validated IP (`CURLOPT_RESOLVE`), strictly restricts cURL to `http`/`https` protocols, never lets curl follow redirects (each hop is re-validated), and caps the download size.
+- **XXE & Parser Safety**: HTML parsing with `DOMDocument` strictly enforces `LIBXML_NONET` to prevent XML entity expansion and unauthorized local file disclosure via PHP stream wrappers.
+- **Input Sanitization**: Control characters (`\r`, `\n`, `\0`) are rejected on URL normalization to prevent HTTP response splitting and header injection.
 - TLS/SSL validation is best effort: some environments fail chain verification due to CA store or proxy configuration.
 - Some modules need internet access on first use (PSL download, IANA RDAP bootstrap, PhishTank); the PSL is downloaded automatically to `storage/public_suffix_list.dat` if missing.
-- Content analysis performs GET requests and HTML parsing. Enable caching to reduce load when scanning at volume.
+- Content analysis performs GET requests and HTML parsing. Enable caching to reduce load when scanning at volume. Details: [Security](./docs/security.md).
 
 ## Development
 

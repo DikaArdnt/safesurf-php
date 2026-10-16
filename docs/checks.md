@@ -66,8 +66,8 @@ Pure string analysis of the normalized URL.
 
 | Signal | Threshold | Meaning |
 | --- | --- | --- |
-| `url_shortener` | domain in `assets/url_shorteners.php` | Hides the real destination |
-| `uses_ip` | host is a raw IPv4/IPv6 address | Legitimate sites rarely serve logins from bare IPs |
+| `url_shortener` | domain in `assets/url_shorteners.php` or path prefix in `assets/short_link_paths.php` | Hides the real destination (bare homepages are exempted) |
+| `uses_ip` | host is a raw IPv4/IPv6 address, or matches an IP hostname service (`nip.io`, `sslip.io`, `traefik.me`, `cprapid.com`) | Turns arbitrary raw IP servers into domain names for evasion |
 | `contains_punycode` | any `xn--` label or non-ASCII character in the host | Possible IDN spoofing (see also [Homoglyph](#homoglyph--idn-spoofing)) |
 | `too_long` | URL longer than 75 characters | Long URLs hide the real host |
 | `too_deep` | more than 5 `/` in the URL | Deep paths hide the real page |
@@ -93,7 +93,7 @@ Output:
 - `is_trusted_tld` — government/education style TLDs (`trusted_tlds.php`): strong trust signal.
 - `is_risky_tld` — TLDs frequently abused for spam (`risky_tlds.php`): risk signal.
 - `is_icann` — the suffix is an official ICANN registry suffix; non-ICANN suffixes are penalized *unless* they are a known hosting platform.
-- `is_hosting_platform` — trusted PSL-private suffix (`hosting_platforms.php`). Hosting-platform subdomains suppress the unranked, missing-NS and non-ICANN penalties.
+- `is_hosting_platform` — trusted PSL-private suffix (`hosting_platforms.php`) or detected Customer Site Platform (`customer_site_hosts.php`, e.g., Weebly, Wix, Blogger ccTLDs). Hosting-platform subdomains suppress the unranked, missing-NS, and non-ICANN penalties, while isolating WHOIS age inheritance.
 
 ## Subdomain label signals
 
@@ -119,14 +119,17 @@ Single-script IDNs such as `münchen.de` are *not* flagged — plain punycode pr
 
 This field is **informational**: the scorer does not consume it, because randomness alone produces too many false positives for brandable names.
 
-## Typosquatting
+## Typosquatting & Combo-squatting
 
-`typosquat_result` compares the input SLD (minimum length 4) against the top-5000 domains from the ranking CSV:
+`typosquat_result` compares the input SLD (minimum length 4) against the top-5000 domains from the ranking CSV, and performs URL parts inspection:
 
 - **Typosquatting** — Levenshtein distance 1-2 from a top-domain SLD (e.g. `gooogle.com` vs `google`).
-- **Combo-squatting** — the input SLD *contains* a top-brand SLD of length >= 6 (e.g. `secure-paypal-login.com`).
+- **Combo-squatting** — the input SLD *contains* a top-brand SLD of length >= 6 (e.g. `secure-paypal-login.com`). Generic vocabulary words (crypto, united, global, online, etc.) are excluded via `genericBrandNames` to prevent false positives.
+- **Embedded domain** (`embedded_domain`) — URL starts like a reputable host but resolves to a completely different domain (e.g. `login.paypal.com.attacker.com`).
+- **Subdomain brand** (`subdomain_brand`) — brand token embedded in a subdomain on an unofficial domain.
+- **Path brand** (`path_brand`) — brand name found inside the URL path (e.g. `attacker.com/paypal/login`).
 
-Output: `is_suspicious`, `matched_domain`, `matched_brand`, `distance`, `is_combo_squat`.
+Output: `is_suspicious`, `matched_domain`, `matched_brand`, `distance`, `is_combo_squat`, `combo_exact`, `embedded_domain`, `subdomain_brand`, `path_brand`.
 
 ## DNS signals
 
@@ -153,7 +156,7 @@ Output: `is_suspicious`, `matched_domain`, `matched_brand`, `distance`, `is_comb
 "is_hsts_supported": false
 ```
 
-`has_domain_jump` is true when any hop leaves the original registrable domain — a classic bait-and-switch pattern. If the target itself does not send `Strict-Transport-Security`, the root domain is probed over HTTPS as a fallback before reporting `is_hsts_supported`.
+`has_domain_jump` is true when any hop leaves the original registrable domain. Legitimate jumps between domains owned by the same brand (e.g. `wa.me` -> `api.whatsapp.com`) or to vouched destinations are contextualized by `applyExceptions()`.
 
 ## TLS / SSL
 
@@ -171,17 +174,19 @@ Output: `is_suspicious`, `matched_domain`, `matched_brand`, `distance`, `is_comb
 
 ## Content analysis
 
-`content_data` is produced by fetching the page (body capped at `maxBodyBytes`) and parsing it with DOMDocument. The parser itself (`Content::analyzeHtml()`) is pure and testable with fixture HTML.
+`content_data` is produced by fetching the page (body capped at `maxBodyBytes`) and parsing it with DOMDocument (hardened with `LIBXML_NONET`). The parser itself (`Content::analyzeHtml()`) is pure and testable with fixture HTML.
 
 | Field | Meaning |
 | --- | --- |
 | `title`, `text_sample` | Page title and first ~300 words of visible text (used for brand checks and root similarity) |
-| `forms[]` | Per form: `action`, `method`, input summaries, `has_password`, `has_user_like`, `has_payment`, `has_personal`, `is_external` (action leaves the host), `is_hidden` |
-| `has_login_form` / `has_payment_form` / `has_personal_form` | Aggregated form signals |
+| `forms[]` | Per form: `action`, `method`, input summaries, `has_password`, `has_user_like`, `login_intent`, `has_payment`, `has_personal`, `is_external` (action leaves the host), `is_marketing` (posts to Mailchimp, HubSpot, etc.), `is_hidden` |
+| `has_login_form` / `has_payment_form` / `has_personal_form` | Aggregated form signals. `has_login_form` requires an actual password field or user/email input paired with active login intent (`looksLikeLoginText`) |
 | `iframes[]`, `has_hidden_iframe` | Zero-size / `display:none` / `visibility:hidden` / `opacity:0` iframes |
 | `has_tracking` | 1x1 or 0x0 tracking pixels |
-| `brand_check` | Brand found in the title/body vs official domains: `brand_found`, `is_mismatch`, `detected_names` |
+| `brand_check` | Brand found in title vs official domains: `brand_found`, `official_domain`, `is_mismatch`, `detected_names` (`Brand::withoutOwnAddress()` prevents host claiming brand) |
 | `favicon` | `href`, `is_external`, `external_host`, `brand_domain`, `brand_mismatch` |
+| `script_redirect` | Forensics on immediate script-based redirects (`to_ip`, `cross_domain`, `target`) |
+| `provider_block` | Hosting provider takedown or warning detection (`provider`, `reason`, e.g. Cloudflare phishing interstitial) |
 | `phishing_patterns` | See below |
 
 `phishing_patterns` collects the page-level phishing tells:
@@ -190,6 +195,7 @@ Output: `is_suspicious`, `matched_domain`, `matched_brand`, `distance`, `is_comb
 - `meta_refresh` / `meta_refresh_external` — `<meta http-equiv="refresh">` redirecting off-domain.
 - `external_asset_hosts`, `external_asset_count` — scripts/links/images loaded from other hosts (up to 10 hosts listed).
 - `brand_names_in_text`, `login_with_brand_text` — brand names mentioned in the text on an unofficial domain, combined with a login form (credential-harvesting pattern).
+- `script_redirect`, `provider_block` — immediate redirection scripts and provider-enforced takedowns.
 - `js_signals` — inline `<script>` heuristics (see below).
 
 ### JavaScript signals (`js_signals`)

@@ -27,8 +27,9 @@ final class DnsQuery
             return null;
         }
 
+        $targetServer = str_contains($serverIp, ':') ? "[$serverIp]" : $serverIp;
         $sock = @stream_socket_client(
-            "udp://{$serverIp}:53",
+            "udp://{$targetServer}:53",
             $errno,
             $errstr,
             max(0.1, $timeoutMs / 1000)

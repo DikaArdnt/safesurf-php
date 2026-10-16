@@ -46,6 +46,15 @@ final class HomoglyphTest extends TestCase
         $this->assertNotEmpty($out['fullwidth_chars']);
     }
 
+    public function testInvisibleCharacterDetected(): void
+    {
+        // Domain with zero-width space (U+200B)
+        $domain = "login\u{200B}page.com";
+        $out = Homoglyph::analyze($domain);
+        $this->assertTrue($out['has_homoglyph']);
+        $this->assertContains('U+200B', $out['invisible_chars']);
+    }
+
     public function testBackwardCompatibleHelper(): void
     {
         $this->assertTrue(Homoglyph::hasHomoglyphs('xn--pple-43d.com'));

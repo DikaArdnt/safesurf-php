@@ -34,4 +34,16 @@ return [
    'cyclic.app' => true, // Cyclic
    'deno.dev' => true, // Deno Deploy
    'val.run' => true, // Val Town
+
+   // File and asset hosting run by large providers
+   'googleapis.com' => true, // Google Cloud Storage (storage.googleapis.com)
+   'appspot.com' => true, // Google App Engine
+   'blogspot.com' => true, // Blogger
+   'githubusercontent.com' => true, // GitHub raw files and release assets
+   'amazonaws.com' => true, // Amazon S3 in every region, EC2 hostnames
+   'core.windows.net' => true, // Azure Storage: blob., web. (static sites), file.
+   'cloudfront.net' => true, // Amazon CloudFront
+   'r2.dev' => true, // Cloudflare R2
+   'digitaloceanspaces.com' => true, // DigitalOcean Spaces, per region
+   'linodeobjects.com' => true, // Akamai (Linode) Object Storage, per region
 ];

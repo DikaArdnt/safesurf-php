@@ -29,14 +29,16 @@ final class HttpClient
             return self::err('blocked_scheme');
         }
 
+        $cleanHost = trim($host, '[]');
+
         $ip = null;
-        if (!filter_var($host, FILTER_VALIDATE_IP)) {
-            $ip = self::resolveFirstPublicIp($host);
+        if (!filter_var($cleanHost, FILTER_VALIDATE_IP)) {
+            $ip = self::resolveFirstPublicIp($cleanHost);
             if ($ip === null) {
                 return self::err('dns_resolution_failed');
             }
         } else {
-            $ip = $host;
+            $ip = $cleanHost;
             if (self::isPrivateIp($ip)) {
                 return self::err('ssrf_blocked');
             }
@@ -57,6 +59,8 @@ final class HttpClient
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_MAXREDIRS => 0,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_TIMEOUT_MS => $config->httpTimeoutMs,
             CURLOPT_CONNECTTIMEOUT_MS => min(500, $config->httpHeaderTimeoutMs),
@@ -102,8 +106,9 @@ final class HttpClient
 
         $parts = parse_url($url);
         $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
-        if ($host !== $ip) {
-            $opts[CURLOPT_RESOLVE] = ["{$host}:{$port}:{$ip}"];
+        if ($cleanHost !== $ip) {
+            $resolveIp = str_contains($ip, ':') ? "[$ip]" : $ip;
+            $opts[CURLOPT_RESOLVE] = ["{$cleanHost}:{$port}:{$resolveIp}"];
         }
 
         curl_setopt_array($ch, $opts);
@@ -165,6 +170,8 @@ final class HttpClient
 
     public static function isPrivateIp(string $ip): bool
     {
+        $ip = trim($ip, '[]');
+
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             $n = ip2long($ip);
             if ($n === false) {
@@ -180,8 +187,12 @@ final class HttpClient
                 ['169.254.0.0', 16],
                 ['172.16.0.0', 12],
                 ['192.0.0.0', 24],
+                ['192.0.2.0', 24],
+                ['192.88.99.0', 24],
                 ['192.168.0.0', 16],
                 ['198.18.0.0', 15],
+                ['198.51.100.0', 24],
+                ['203.0.113.0', 24],
                 ['224.0.0.0', 4],
                 ['240.0.0.0', 4],
             ];
@@ -206,9 +217,31 @@ final class HttpClient
                 return true;
             }
 
-            // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible forms must be
-            // validated as the embedded IPv4 address.
-            if (substr($bin, 0, 10) === str_repeat("\0", 10) && (ord($bin[10]) === 0xFF || ord($bin[10]) === 0) && ord($bin[11]) === 0xFF) {
+            // Unspecified address (::)
+            if ($bin === str_repeat("\0", 16)) {
+                return true;
+            }
+
+            // Loopback address (::1)
+            if ($bin === (str_repeat("\0", 15) . "\x01")) {
+                return true;
+            }
+
+            // IPv4-mapped (::ffff:0:0/96), IPv4-compatible (::/96), SIIT (::ffff:0:a.b.c.d)
+            if (substr($bin, 0, 10) === str_repeat("\0", 10)) {
+                $b10 = ord($bin[10]);
+                $b11 = ord($bin[11]);
+                if (($b10 === 0x00 && $b11 === 0x00) || ($b10 === 0xFF && $b11 === 0xFF) || ($b10 === 0xFF && $b11 === 0x00)) {
+                    $v4 = long2ip((int) (unpack('N', substr($bin, 12))[1] ?? 0));
+                    if (is_string($v4)) {
+                        return self::isPrivateIp($v4);
+                    }
+                    return true;
+                }
+            }
+
+            // Well-Known Prefix for IPv4/IPv6 translation (64:ff9b::/96)
+            if (str_starts_with($bin, "\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00")) {
                 $v4 = long2ip((int) (unpack('N', substr($bin, 12))[1] ?? 0));
                 if (is_string($v4)) {
                     return self::isPrivateIp($v4);
@@ -219,13 +252,23 @@ final class HttpClient
             $firstByte = ord($bin[0]);
             $secondByte = ord($bin[1]);
 
-            if ($ip === '::1') {
+            // Multicast (ff00::/8)
+            if ($firstByte === 0xFF) {
                 return true;
             }
+
+            // Unique Local Address (fc00::/7)
             if (($firstByte & 0xFE) === 0xFC) {
                 return true;
             }
+
+            // Link-Local Unicast (fe80::/10)
             if ($firstByte === 0xFE && ($secondByte & 0xC0) === 0x80) {
+                return true;
+            }
+
+            // Discard prefix (100::/64)
+            if (str_starts_with($bin, "\x01\x00\x00\x00\x00\x00\x00\x00")) {
                 return true;
             }
 

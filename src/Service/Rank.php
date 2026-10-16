@@ -8,10 +8,21 @@ use SafeSurf\Config;
 
 final class Rank
 {
+    /** @var array<string, int> */
+    private static array $memoryCache = [];
+
     public static function lookup(string $domain, Config $config): int
     {
         $domain = strtolower(trim($domain));
-        if ($domain === '' || !is_file($config->rankCsvPath)) {
+        if ($domain === '') {
+            return 0;
+        }
+
+        if (isset(self::$memoryCache[$domain])) {
+            return self::$memoryCache[$domain];
+        }
+
+        if (!is_file($config->rankCsvPath)) {
             return 0;
         }
 
@@ -19,7 +30,7 @@ final class Rank
         if ($config->cache !== null) {
             $cached = $config->cache->getJson($cacheKey);
             if (is_array($cached) && isset($cached['rank'])) {
-                return (int) $cached['rank'];
+                return self::$memoryCache[$domain] = (int) $cached['rank'];
             }
         }
 
@@ -34,17 +45,19 @@ final class Rank
             if ($line === '') {
                 continue;
             }
-            $parts = str_getcsv($line, ',', '"', '');
-            if (count($parts) < 2) {
+            $pos = strpos($line, ',');
+            if ($pos === false) {
                 continue;
             }
-            $d = strtolower(trim((string) $parts[1]));
+            $d = strtolower(trim(substr($line, $pos + 1)));
             if ($d === $domain) {
-                $rank = (int) $parts[0];
+                $rank = (int) substr($line, 0, $pos);
                 break;
             }
         }
         fclose($fh);
+
+        self::$memoryCache[$domain] = $rank;
 
         if ($config->cache !== null) {
             $config->cache->setJson($cacheKey, ['rank' => $rank], $config->ttlDomainRankSeconds);
@@ -78,11 +91,11 @@ final class Rank
             if ($line === '') {
                 continue;
             }
-            $parts = str_getcsv($line, ',', '"', '');
-            if (count($parts) < 2) {
+            $pos = strpos($line, ',');
+            if ($pos === false) {
                 continue;
             }
-            $d = strtolower(trim((string) $parts[1]));
+            $d = strtolower(trim(substr($line, $pos + 1)));
             if ($d !== '') {
                 $domains[] = $d;
             }

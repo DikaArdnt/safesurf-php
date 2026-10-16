@@ -285,4 +285,79 @@ final class ResultScorerTest extends TestCase
         $this->assertStringContainsString('certificate expired', $badReasons);
         $this->assertStringContainsString('clientHold', $badReasons);
     }
+
+    public function testReputableDomainWithStructuralTraitsIsNotPenalized(): void
+    {
+        // wa.me / t.me style: a top-ranked domain with a generic extension,
+        // listed as a shortener, redirecting cross-domain to another
+        // established domain. None of that is evidence of phishing.
+        $resp = $this->makeResp([
+            'features' => [
+                'rank' => 69,
+                'tld' => [
+                    'tld' => 'me',
+                    'is_trusted_tld' => false,
+                    'is_risky_tld' => true,
+                    'is_icann' => true,
+                    'is_hosting_platform' => false,
+                ],
+                'url' => ['url_shortener' => true],
+            ],
+            'analysis' => [
+                'redirection_result' => [
+                    'is_redirected' => true,
+                    'chain_length' => 2,
+                    'chain' => ['https://wa.me/628', 'https://api.whatsapp.com/'],
+                    'final_url' => 'https://api.whatsapp.com/',
+                    'final_url_domain' => 'api.whatsapp.com',
+                    'final_url_rank' => 55,
+                    'has_domain_jump' => true,
+                ],
+            ],
+        ]);
+
+        $result = ResultScorer::generate($resp);
+        $this->assertSame('Safe', $result['verdict']);
+        $this->assertSame(0, $result['risk_score']);
+    }
+
+    public function testTrustedShortenerToUnknownDestinationStillFlagged(): void
+    {
+        $resp = $this->makeResp([
+            'features' => [
+                'rank' => 69,
+                'url' => ['url_shortener' => true],
+            ],
+            'analysis' => [
+                'redirection_result' => [
+                    'is_redirected' => true,
+                    'chain_length' => 2,
+                    'chain' => ['https://wa.me/628', 'https://evil.tk/'],
+                    'final_url' => 'https://evil.tk/',
+                    'final_url_domain' => 'evil.tk',
+                    'final_url_rank' => 0,
+                    'has_domain_jump' => true,
+                ],
+            ],
+        ]);
+
+        $result = ResultScorer::generate($resp);
+        $badReasons = implode(' | ', $result['reasons']['bad_reasons']);
+        $this->assertStringContainsString('Cross-domain redirection', $badReasons);
+        $this->assertStringContainsString('evil.tk', $badReasons);
+    }
+
+    public function testHardSignalsStillScoreOnReputableDomain(): void
+    {
+        $resp = $this->makeResp([
+            'features' => [
+                'rank' => 500,
+                'url' => ['contains_punycode' => true],
+            ],
+        ]);
+
+        $result = ResultScorer::generate($resp);
+        $this->assertSame(100, $result['risk_score']);
+        $this->assertStringContainsString('Punycode', implode(' | ', $result['reasons']['bad_reasons']));
+    }
 }

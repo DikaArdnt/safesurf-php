@@ -55,6 +55,13 @@ final class HttpCombined
             $origDomain = null;
         }
 
+        $finalDomain = null;
+        try {
+            $finalDomain = DomainUtil::registrableDomainFromUrl($finalUrl, $config->publicSuffixListPath);
+        } catch (\Throwable) {
+            $finalDomain = null;
+        }
+
         if ($origDomain !== null && $origDomain !== '') {
             foreach (array_slice($chain, 1) as $u) {
                 try {
@@ -103,6 +110,7 @@ final class HttpCombined
                 'chain' => $chain,
                 'final_url' => $finalUrl,
                 'final_url_domain' => $finalHost,
+                'final_registrable_domain' => $finalDomain ?? '',
                 'has_domain_jump' => $hasJump,
             ],
             'status_code' => $statusCode,

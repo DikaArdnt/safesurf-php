@@ -169,7 +169,7 @@ On an invalid input the call short-circuits: `{"error": "invalid_url"}` (unparse
         "form_count": 0, "forms": [], "iframes": [],
         "has_hidden_iframe": false, "has_tracking": false,
         "fetch_duration": 30108929,
-        "brand_check": { "brand_found": "", "is_mismatch": false, "detected_names": [] },
+        "brand_check": { "brand_found": "", "official_domain": "", "is_mismatch": false, "detected_names": [] },
         "text_sample": "Example DomainThis domain is for use in documentation examples without needing permission. Avoid use in operations.Learn more",
         "favicon": { "href": "data:,", "is_external": false, "external_host": "", "brand_domain": "", "brand_mismatch": false },
         "phishing_patterns": {

@@ -6,6 +6,7 @@ namespace SafeSurf\Service;
 
 use Iodev\Whois\Factory as WhoisFactory;
 use SafeSurf\Config;
+use SafeSurf\Util\DomainUtil;
 
 final class DomainInfo
 {
@@ -27,6 +28,10 @@ final class DomainInfo
     {
         $domain = strtolower(trim($domain));
         if ($domain === '' || filter_var($domain, FILTER_VALIDATE_IP)) {
+            return null;
+        }
+
+        if (DomainUtil::customerSitePlatform($domain) !== null) {
             return null;
         }
 
@@ -72,13 +77,17 @@ final class DomainInfo
             return null;
         }
         $tld = strtolower((string) end($parts));
+        if (preg_match('/^[a-z0-9-]+$/', $tld) !== 1) {
+            return null;
+        }
 
         $server = self::rdapServer($tld, $config);
         if ($server === null) {
             return null;
         }
 
-        $url = rtrim($server, '/') . "/domain/$domain";
+        $safeDomain = rawurlencode($domain);
+        $url = rtrim($server, '/') . "/domain/$safeDomain";
         $json = self::httpGetJson($url, 3.0, $config);
         if (!is_array($json)) {
             return null;
@@ -243,6 +252,8 @@ final class DomainInfo
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS => 3,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
             CURLOPT_TIMEOUT => $timeoutSeconds,
             CURLOPT_CONNECTTIMEOUT => min(2.0, $timeoutSeconds),
             CURLOPT_SSL_VERIFYPEER => true,

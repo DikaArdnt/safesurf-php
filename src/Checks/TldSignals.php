@@ -12,14 +12,20 @@ final class TldSignals
 {
     public static function info(string $domain, Config $config): array
     {
-        $t = DomainUtil::tldFromDomain($domain, $config->publicSuffixListPath);
-        $tld = strtolower((string) ($t['tld'] ?? ''));
-        $icann = (bool) ($t['icann'] ?? false);
+        $platform = DomainUtil::customerSitePlatform($domain);
+        if ($platform !== null) {
+            $tld = $platform;
+            $icann = false;
+            $hostingPlatform = true;
+        } else {
+            $t = DomainUtil::tldFromDomain($domain, $config->publicSuffixListPath);
+            $tld = strtolower((string) ($t['tld'] ?? ''));
+            $icann = (bool) ($t['icann'] ?? false);
+            $hostingPlatform = DomainUtil::isHostingSuffix($tld);
+        }
 
         $trusted = isset(DataFiles::trustedTlds()[$tld]);
         $risky = isset(DataFiles::riskyTlds()[$tld]);
-
-        $hostingPlatform = isset(DataFiles::hostingPlatforms()[$tld]);
 
         return ['tld' => $tld, 'icann' => $icann, 'trusted' => $trusted, 'risky' => $risky, 'hosting_platform' => $hostingPlatform];
     }

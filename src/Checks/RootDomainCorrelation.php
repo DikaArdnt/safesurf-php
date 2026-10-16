@@ -238,7 +238,7 @@ final class RootDomainCorrelation
 
         $doc = new \DOMDocument();
         $prev = libxml_use_internal_errors(true);
-        $ok = $doc->loadHTML($body, LIBXML_NOERROR | LIBXML_NOWARNING);
+        $ok = $doc->loadHTML($body, LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
         if (!$ok) {
