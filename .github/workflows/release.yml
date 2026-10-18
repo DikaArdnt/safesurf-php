@@ -1,0 +1,165 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'CHANGELOG.md'
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag version to release (e.g. v2.1.1 or 2.1.1). Leave empty to detect from CHANGELOG.md'
+        required: false
+        type: string
+      draft:
+        description: 'Create as a draft release'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Create as a pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Detect Release Version
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+      tag_name: ${{ steps.check.outputs.tag_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Determine Version and Release Status
+        id: check
+        run: |
+          set -e
+
+          INPUT_TAG="${{ inputs.tag_name }}"
+          REF_TYPE="${{ github.ref_type }}"
+          REF_NAME="${{ github.ref_name }}"
+
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+            VERSION="${INPUT_TAG#v}"
+          elif [ "$REF_TYPE" = "tag" ]; then
+            TAG="$REF_NAME"
+            VERSION="${REF_NAME#v}"
+          else
+            # Extract latest version from CHANGELOG.md
+            VERSION=$(php -r '
+              $content = file_get_contents("CHANGELOG.md");
+              if (preg_match("/##\s*\[([0-9]+\.[0-9]+\.[0-9]+[^\]]*)\]/", $content, $m)) {
+                  echo $m[1];
+              } else {
+                  exit(1);
+              }
+            ')
+            TAG="v$VERSION"
+          fi
+
+          echo "Detected version: $VERSION"
+          echo "Target tag: $TAG"
+
+          # Check if tag already exists in remote git tags
+          if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            echo "Tag $TAG already exists on remote. Skipping release."
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "Tag $TAG does not exist yet. Proceeding with release."
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "tag_name=$TAG" >> $GITHUB_OUTPUT
+          fi
+
+  test:
+    name: Run Test Suite
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: curl, mbstring, dom, json, filter
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Run PHPUnit
+        run: vendor/bin/phpunit
+
+  release:
+    name: Create GitHub Release
+    needs: [prepare, test]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Extract Release Notes from CHANGELOG.md
+        run: |
+          php -r '
+            $version = "${{ needs.prepare.outputs.version }}";
+            $content = file_get_contents("CHANGELOG.md");
+            $pattern = "/##\s*\[" . preg_quote($version, "/") . "\](?:\s*-\s*[0-9-]+)?/";
+            if (preg_match($pattern, $content, $m, PREG_OFFSET_CAPTURE)) {
+                $start = $m[0][1] + strlen($m[0][0]);
+                $end = preg_match("/\n##\s*\[/", $content, $next, PREG_OFFSET_CAPTURE, $start) ? $next[0][1] : strlen($content);
+                $notes = trim(substr($content, $start, $end - $start));
+                $notes = trim(preg_replace("/\n---\s*$/", "", $notes));
+                file_put_contents("RELEASE_NOTES.md", $notes);
+            } else {
+                file_put_contents("RELEASE_NOTES.md", "Release $version");
+            }
+          '
+
+      - name: Create Git Tag and GitHub Release
+        run: |
+          TAG="${{ needs.prepare.outputs.tag_name }}"
+          TITLE="Release $TAG"
+
+          FLAGS=()
+          if [ "${{ inputs.draft }}" = "true" ]; then
+            FLAGS+=(--draft)
+          fi
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            FLAGS+=(--prerelease)
+          fi
+
+          gh release create "$TAG" \
+            --title "$TITLE" \
+            --notes-file RELEASE_NOTES.md \
+            --target "${{ github.sha }}" \
+            "${FLAGS[@]}"
