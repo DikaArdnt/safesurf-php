@@ -50,7 +50,7 @@ Configuration is a single constructor-promoted value object. Add a **public prop
 
 ## Testing
 
-Tests live in `tests/` (PHPUnit 10). Conventions:
+Tests live in `tests/` (PHPUnit 9 or 10, supporting PHP >= 8.0). Conventions:
 
 - Pure checks get fixture-based tests with **no network**: synthetic HTML for `Content::analyzeHtml()`, synthetic DNS packets for `DnsQuery::buildQuery()/parseResponse()`, synthetic feed doubles for `FeedRunnerTest`.
 - Existing examples to copy: `tests/JsSignalsTest.php`, `tests/SubdomainSignalsTest.php`, `tests/HomoglyphTest.php`, `tests/ResultScorerTest.php` (synthetic response arrays), `tests/FeedRunnerTest.php` (plugin + PHPDoc extraction).

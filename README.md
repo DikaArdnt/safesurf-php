@@ -154,7 +154,7 @@ Severity mapping in the risk score: `phishing`/`malware` = 70, `blocked` = 25, `
 
 ## Development
 
-Run the test suite:
+Run the test suite (supports PHPUnit 9 on PHP 8.0, and PHPUnit 10 on PHP >= 8.1):
 
 ```bash
 composer tests
