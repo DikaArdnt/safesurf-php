@@ -81,7 +81,7 @@ final class DomainUtil
         return $rest . '.' . $platform;
     }
 
-    public static function registrableDomainFromUrl(string $url, string $pslPath): ?string
+    public static function registrableDomainFromUrl(string $url, ?string $pslPath = null): ?string
     {
         $host = self::hostFromUrl($url);
         if ($host === null || $host === '') {
@@ -94,6 +94,10 @@ final class DomainUtil
         $customerSite = self::customerSite($host);
         if ($customerSite !== null && $customerSite !== '') {
             return $customerSite;
+        }
+
+        if ($pslPath === null || $pslPath === '') {
+            $pslPath = dirname(__DIR__, 2) . '/storage/public_suffix_list.dat';
         }
 
         $rules = self::rules($pslPath);
@@ -147,7 +151,7 @@ final class DomainUtil
         return false;
     }
 
-    public static function tldFromDomain(string $domain, string $pslPath): array
+    public static function tldFromDomain(string $domain, ?string $pslPath = null): array
     {
         $domain = strtolower(trim($domain));
         if ($domain === '' || filter_var($domain, FILTER_VALIDATE_IP)) {
@@ -157,6 +161,10 @@ final class DomainUtil
         $platform = self::customerSitePlatform($domain);
         if ($platform !== null) {
             return ['tld' => $platform, 'icann' => false];
+        }
+
+        if ($pslPath === null || $pslPath === '') {
+            $pslPath = dirname(__DIR__, 2) . '/storage/public_suffix_list.dat';
         }
 
         $rules = self::rules($pslPath);

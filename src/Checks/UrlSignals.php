@@ -84,7 +84,7 @@ final class UrlSignals
             $path = parse_url($url, PHP_URL_PATH);
             $host = DomainUtil::hostFromUrl($url);
             if (is_string($path) && $host !== null) {
-                $shortLinkPaths = DataFiles::get('short_link_paths') ?? [];
+                $shortLinkPaths = DataFiles::shortLinkPaths();
                 for ($d = strtolower($host); $d !== ''; ) {
                     $prefixes = $shortLinkPaths[$d] ?? null;
                     if (is_array($prefixes)) {

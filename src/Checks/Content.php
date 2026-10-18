@@ -285,7 +285,7 @@ final class Content
             }
             if (preg_match_all('/location(?:\.href)?\s*=\s*["\']([^"\']+)["\']|location\.(?:replace|assign)\s*\(\s*["\']([^"\']+)["\']/i', $js, $m, PREG_SET_ORDER)) {
                 foreach ($m as $match) {
-                    $tgt = $match[1] !== '' ? $match[1] : ($match[2] ?? '');
+                    $tgt = !empty($match[1]) ? $match[1] : ($match[2] ?? '');
                     $consider($tgt, true);
                 }
             }

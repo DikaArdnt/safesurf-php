@@ -285,6 +285,7 @@ return [
     [
       'whatsapp.com',
       'web.whatsapp.com',
+      'wa.me',
     ],
   ],
   'Telegram' =>

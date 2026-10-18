@@ -12,12 +12,15 @@ use SafeSurf\SafeSurf;
 
 $url = $argv[1] ?? 'kua.lat';
 
-$pool = CacheManager::getInstance('Files', new ConfigurationOption([
-    'path' => __DIR__ . '/../storage/cache',
-]));
-
-$cache = new PhpFastCacheAdapter($pool);
-$config = new Config(cache: $cache);
+try {
+    $pool = CacheManager::getInstance('Files', new ConfigurationOption([
+        'path' => __DIR__ . '/../storage/cache',
+    ]));
+    $cache = new PhpFastCacheAdapter($pool);
+    $config = new Config(cache: $cache);
+} catch (\Throwable) {
+    $config = new Config();
+}
 
 $result = SafeSurf::analyze($url, $config);
 

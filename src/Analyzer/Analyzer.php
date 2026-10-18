@@ -290,7 +290,7 @@ final class Analyzer
         // 1. Bare address of a provider's own endpoint takes the owning domain's rank.
         $providerServiceHosts = DataFiles::providerServiceHosts();
         if (isset($providerServiceHosts[$host]) && $isBare && $rank === 0) {
-            $rank = Rank::lookup($tld !== '' ? $tld : $domain);
+            $rank = Rank::lookup($tld !== '' ? $tld : $domain, $config);
             $resp['features']['rank'] = $rank;
         }
 
@@ -397,7 +397,7 @@ final class Analyzer
             $finalHost = (string) ($redir['final_url_domain'] ?? (DomainUtil::hostFromUrl($finalUrl) ?? ''));
 
             if ($hasJump) {
-                if ($rank > 0 && (self::isVouchedDestination($finalUrl) || self::sameBrand($domain, $finalHost))) {
+                if ($rank > 0 && (self::isVouchedDestination($finalUrl, $config) || self::sameBrand($domain, $finalHost))) {
                     $redir['has_domain_jump'] = false;
                 } elseif (self::sameBlog($host, $finalHost)) {
                     $redir['has_domain_jump'] = false;
@@ -492,16 +492,16 @@ final class Analyzer
         return (bool) preg_match('/(?i)(log[-_]?in|log[-_]?on|sign[-_]?in|signon|verif|auth|secure|account|webscr|wallet|update)/', $path);
     }
 
-    private static function isVouchedDestination(string $finalUrl): bool
+    private static function isVouchedDestination(string $finalUrl, Config $config): bool
     {
-        $domain = DomainUtil::registrableDomainFromUrl($finalUrl);
+        $domain = DomainUtil::registrableDomainFromUrl($finalUrl, $config->publicSuffixListPath);
         if ($domain === null || $domain === '') {
             return false;
         }
-        if (Rank::lookup($domain) > 0) {
+        if (Rank::lookup($domain, $config) > 0) {
             return true;
         }
-        $tld = TldSignals::check($domain);
+        $tld = TldSignals::info($domain, $config);
         return !empty($tld['trusted']);
     }
 

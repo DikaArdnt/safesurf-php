@@ -11,8 +11,9 @@ final class Rank
     /** @var array<string, int> */
     private static array $memoryCache = [];
 
-    public static function lookup(string $domain, Config $config): int
+    public static function lookup(string $domain, ?Config $config = null): int
     {
+        $config ??= new Config();
         $domain = strtolower(trim($domain));
         if ($domain === '') {
             return 0;

@@ -100,4 +100,13 @@ final class DomainUtilTest extends TestCase
         $this->assertSame('gitlab.com', DomainUtil::userContentHost('sub.gitlab.com'));
         $this->assertNull(DomainUtil::userContentHost('example.com'));
     }
+
+    public function testRegistrableDomainDefaultPslPath(): void
+    {
+        $this->assertSame('example.com', DomainUtil::registrableDomainFromUrl('https://www.example.com/path'));
+        $this->assertSame('wa.me', DomainUtil::registrableDomainFromUrl('https://wa.me/628123'));
+        $t = DomainUtil::tldFromDomain('example.com');
+        $this->assertSame('com', $t['tld']);
+        $this->assertTrue($t['icann']);
+    }
 }

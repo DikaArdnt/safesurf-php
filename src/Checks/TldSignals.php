@@ -10,8 +10,9 @@ use SafeSurf\Util\DomainUtil;
 
 final class TldSignals
 {
-    public static function info(string $domain, Config $config): array
+    public static function info(string $domain, ?Config $config = null): array
     {
+        $config ??= new Config();
         $platform = DomainUtil::customerSitePlatform($domain);
         if ($platform !== null) {
             $tld = $platform;
@@ -28,5 +29,10 @@ final class TldSignals
         $risky = isset(DataFiles::riskyTlds()[$tld]);
 
         return ['tld' => $tld, 'icann' => $icann, 'trusted' => $trusted, 'risky' => $risky, 'hosting_platform' => $hostingPlatform];
+    }
+
+    public static function check(string $domain, ?Config $config = null): array
+    {
+        return self::info($domain, $config);
     }
 }

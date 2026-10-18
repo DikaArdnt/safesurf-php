@@ -166,4 +166,28 @@ final class DataFiles
         self::$marketingFormHosts = require __DIR__ . '/../../assets/marketing_form_hosts.php';
         return self::$marketingFormHosts;
     }
+
+    public static function get(string $key): ?array
+    {
+        return match ($key) {
+            'risky_tlds', 'riskyTlds' => self::riskyTlds(),
+            'trusted_tlds', 'trustedTlds' => self::trustedTlds(),
+            'hosting_platforms', 'hostingPlatforms' => self::hostingPlatforms(),
+            'url_shorteners', 'urlShorteners' => self::urlShorteners(),
+            'url_keywords', 'urlKeywords' => self::urlKeywords(),
+            'sensitive_subdomains', 'sensitiveSubdomains' => self::sensitiveSubdomains(),
+            'brands' => self::brands(),
+            'customer_site_hosts', 'customerSiteHosts' => self::customerSiteHosts(),
+            'provider_subdomains', 'providerSubdomains' => self::providerSubdomains(),
+            'ip_hostname_services', 'ipHostnameServices' => self::ipHostnameServices(),
+            'ddns_providers', 'ddnsProviders' => self::ddnsProviders(),
+            'user_upload_hosts', 'userUploadHosts' => self::userUploadHosts(),
+            'provider_service_hosts', 'providerServiceHosts' => self::providerServiceHosts(),
+            'user_page_hosts', 'userPageHosts' => self::userPageHosts(),
+            'short_link_paths', 'shortLinkPaths' => self::shortLinkPaths(),
+            'marketing_form_hosts', 'marketingFormHosts' => self::marketingFormHosts(),
+            default => null,
+        };
+    }
 }
+
