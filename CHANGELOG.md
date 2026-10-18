@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.1] - 2026-10-19
+
+### Fixed
+
+- **URL Shortener Detection**:
+  - Replaced undefined method call `DataFiles::get('short_link_paths')` with `DataFiles::shortLinkPaths()` in `UrlSignals::isUrlShortener()`.
+  - Added fallback loader `DataFiles::get(string $key): ?array` to gracefully map dynamic keys to static dataset accessors.
+- **Vouched Destination & Domain Jump Handling**:
+  - Fixed fatal `ArgumentCountError` in `Analyzer::isVouchedDestination()` by passing the active `Config` instance and required `$pslPath` to `DomainUtil::registrableDomainFromUrl()` and `Rank::lookup()`.
+  - Fixed call to undefined method `TldSignals::check()` by invoking `TldSignals::info()`, and added `TldSignals::check()` alias for backward compatibility.
+  - Fixed missing `Config` argument on `Rank::lookup()` call in provider endpoint bare address rank inheritance (`Analyzer.php`).
+  - Added `'wa.me'` to official domains in WhatsApp brand dataset (`assets/brands.php`), enabling correct same-brand jump resolution to `api.whatsapp.com`.
+- **API Resilience & Defaults**:
+  - Added optional default fallback for `$pslPath` (`storage/public_suffix_list.dat`) to `DomainUtil::registrableDomainFromUrl()` and `DomainUtil::tldFromDomain()`.
+  - Added optional default `Config` fallback to `Rank::lookup()` and `TldSignals::info()`.
+- **Type Safety & Forensics**:
+  - Cast float timeouts in `DomainInfo::httpGetJson()` to integer for `CURLOPT_TIMEOUT` and `CURLOPT_CONNECTTIMEOUT`.
+  - Added safe `!empty()` check when extracting JS redirection regex match groups in `Content::detectScriptRedirect()`.
+- **Tooling & Test Suite**:
+  - Updated `phpunit/phpunit` requirement to `^9.5 || ^10.0` in `composer.json` allowing test suite installation and execution on PHP 8.0 environments (such as PHP 8.0.30) alongside PHP >= 8.1.
+  - Removed redundant `bootstrap="vendor/autoload.php"` attribute in `phpunit.xml` which triggered `is_readable()` failures under restricted Windows process tokens.
+  - Fixed duplicate semicolon in `rector.php`.
+  - Added unit test suite `tests/ShortenerAndRankTest.php` covering shortener lookups, `DataFiles::get()`, `Rank::lookup()`, and `TldSignals::check()`.
+  - Added graceful fallback to cacheless mode in `examples/analyze.php` when filesystem cache directory is read-only.
+
+---
+
 ## [2.1.0] - 2026-10-16
 
 ### Added
